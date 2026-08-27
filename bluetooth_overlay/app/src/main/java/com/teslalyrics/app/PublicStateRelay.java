@@ -16,7 +16,7 @@ public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
     public static PublicStateRelay get(){return I;}
     private static final String ENDPOINT="https://ntfy.sh/tlx-b3598dd35e2ab18ef1e2dc84";
-    private final OkHttpClient client=new OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build();
+    private final OkHttpClient client=new OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).build();
     private String lastFingerprint="";
     private long lastElapsed=0,lastMono=0;
     private boolean lastPlaying=false,sending=false;
@@ -25,6 +25,7 @@ public final class PublicStateRelay {
         try{
             String title=f.optString("MediaNowPlayingTitle","");
             if(title.isEmpty())return;
+            MultiLyricsFetcher.get().ensure(f);
             String artist=f.optString("MediaNowPlayingArtist","");
             String album=f.optString("MediaNowPlayingAlbum","");
             String source=f.optString("MediaPlaybackSource","");
@@ -40,6 +41,7 @@ public final class PublicStateRelay {
             if(!changed||sending)return;
 
             JSONObject p=new JSONObject();
+            p.put("kind","state");
             p.put("title",title);p.put("artist",artist);p.put("album",album);p.put("source",source);
             p.put("duration",duration);p.put("elapsed",elapsed);p.put("playing",playing);p.put("offset",offset);
             final String sentFp=fp;final long sentElapsed=elapsed;final long sentMono=now;final boolean sentPlaying=playing;
@@ -51,5 +53,19 @@ public final class PublicStateRelay {
                 @Override public void onResponse(Call call, Response response){try{if(response.isSuccessful()){synchronized(PublicStateRelay.this){lastFingerprint=sentFp;lastElapsed=sentElapsed;lastMono=sentMono;lastPlaying=sentPlaying;sending=false;}AppState.get().log.add("Public relay synced");}else{synchronized(PublicStateRelay.this){sending=false;}AppState.get().log.add("Public relay HTTP "+response.code());}}finally{response.close();}}
             });
         }catch(Exception e){sending=false;AppState.get().log.add("Public relay error: "+e.getClass().getSimpleName());}
+    }
+
+    public void publishLyrics(String key,String provider,String lrc,int score){
+        try{
+            JSONObject p=new JSONObject();
+            p.put("kind","lyrics");p.put("key",key);p.put("provider",provider);p.put("score",score);p.put("lrc",lrc);
+            String filename="tlx-lyrics-"+Integer.toHexString(key.hashCode())+".json";
+            RequestBody body=RequestBody.create(p.toString(),MediaType.parse("application/json; charset=utf-8"));
+            Request req=new Request.Builder().url(ENDPOINT).put(body).header("Filename",filename).header("Cache","yes").build();
+            client.newCall(req).enqueue(new Callback(){
+                @Override public void onFailure(Call call,IOException e){AppState.get().log.add("Lyrics relay retry: "+e.getClass().getSimpleName());}
+                @Override public void onResponse(Call call,Response response){try{AppState.get().log.add(response.isSuccessful()?"Lyrics relay uploaded: "+provider:"Lyrics relay HTTP "+response.code());}finally{response.close();}}
+            });
+        }catch(Exception e){AppState.get().log.add("Lyrics relay error: "+e.getClass().getSimpleName());}
     }
 }
