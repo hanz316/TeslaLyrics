@@ -1,6 +1,7 @@
 package com.teslalyrics.app;
 
 import android.os.SystemClock;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -32,10 +33,14 @@ public final class PublicStateRelay {
             String status=f.optString("MediaPlaybackStatus","Paused");
             long duration=Math.max(0,f.optLong("MediaNowPlayingDuration",0));
             long elapsed=Math.max(0,f.optLong("MediaNowPlayingElapsed",0));
+            long actions=f.optLong("MediaActions",0);
+            long activeQueueId=f.optLong("MediaActiveQueueId",-1);
+            JSONArray queue=f.optJSONArray("MediaQueue");
+            String queueSig=queue==null?"":queue.toString();
             boolean playing="Playing".equalsIgnoreCase(status);
             long offset=AppState.get().effectiveOffsetMs();
             long now=SystemClock.elapsedRealtime();
-            String fp=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration+'\u0001'+status+'\u0001'+offset;
+            String fp=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration+'\u0001'+status+'\u0001'+offset+'\u0001'+actions+'\u0001'+activeQueueId+'\u0001'+queueSig;
             long expected=lastElapsed+(lastPlaying&&lastMono>0?Math.max(0,now-lastMono):0);
             boolean changed=!fp.equals(lastFingerprint)||lastMono==0||Math.abs(elapsed-expected)>1400;
             if(!changed||sending)return;
@@ -44,6 +49,8 @@ public final class PublicStateRelay {
             p.put("kind","state");
             p.put("title",title);p.put("artist",artist);p.put("album",album);p.put("source",source);
             p.put("duration",duration);p.put("elapsed",elapsed);p.put("playing",playing);p.put("offset",offset);
+            p.put("actions",actions);p.put("activeQueueId",activeQueueId);
+            if(queue!=null&&queue.length()>0)p.put("queue",queue);
             final String sentFp=fp;final long sentElapsed=elapsed;final long sentMono=now;final boolean sentPlaying=playing;
             sending=true;
             RequestBody body=RequestBody.create(p.toString(),MediaType.parse("text/plain; charset=utf-8"));
