@@ -15,7 +15,7 @@ jobs:
       - name: Reconstruct source package
         shell: bash
         run: |
-          cat source/chunk_00.b64 source/chunk_01.b64 source/chunk_02.b64 source/chunk_03.b64 source/chunk_04.b64 source/chunk_05.b64 source/chunk_06a.b64 source/chunk_06b.b64 | base64 --decode > TeslaLyrics-project.zip
+          { cat source/chunk_00.b64 source/chunk_01.b64 source/chunk_02.b64 source/chunk_03.b64 source/chunk_04.b64 source/chunk_05.b64 source/chunk_06a.b64 source/chunk_06b.b64; printf '='; } | base64 --decode > TeslaLyrics-project.zip
           unzip -q TeslaLyrics-project.zip -d project
 
       - name: Set up Java 17
