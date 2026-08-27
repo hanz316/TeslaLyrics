@@ -62,11 +62,11 @@ jobs:
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-PublicRelay.apk
+        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-RemoteControl.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-PublicRelay-apk
-          path: TeslaLyrics-PublicRelay.apk
+          name: TeslaLyrics-RemoteControl-apk
+          path: TeslaLyrics-RemoteControl.apk
           if-no-files-found: error
