@@ -187,7 +187,7 @@ docker run -d --name mosquitto --restart unless-stopped --network teslalyrics -v
 
 docker run -d --name vehicle-command --restart unless-stopped --network teslalyrics --security-opt no-new-privileges:true -v "$BASE/command:/config:ro" tesla/vehicle-command:latest -tls-key /config/proxy-tls.key -cert /config/proxy-tls.crt -key-file /config/fleet-key.pem -host 0.0.0.0 -port 4443 >/dev/null
 
-docker run -d --name fleet-telemetry --restart unless-stopped --network teslalyrics -p 443:443 -v "$BASE/fleet/config.json:/etc/fleet-telemetry/config.json:ro" -v "$CERT_LIVE:/certs:ro" tesla/fleet-telemetry:v0.9.4 -config /etc/fleet-telemetry/config.json >/dev/null
+docker run -d --name fleet-telemetry --restart unless-stopped --network teslalyrics -p 443:443 -v "$BASE/fleet/config.json:/etc/fleet-telemetry/config.json:ro" -v "$CERT_LIVE:/certs:ro" tesla/fleet-telemetry:v0.9.4 /fleet-telemetry -config=/etc/fleet-telemetry/config.json >/dev/null
 
 docker run -d --name relay --restart unless-stopped --network teslalyrics -p 8443:8443 -e "RELAY_TOKEN=$RELAY_TOKEN" -e "TELEMETRY_HOST=$FQDN" -e "COMMAND_PROXY_URL=https://vehicle-command:4443" -e "NODE_EXTRA_CA_CERTS=/command/proxy-tls.crt" -v "$CERT_LIVE:/certs:ro" -v "$BASE/command:/command:ro" teslalyrics-relay:local >/dev/null
 
