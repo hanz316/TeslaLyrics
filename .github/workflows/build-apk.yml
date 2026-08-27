@@ -46,9 +46,6 @@ jobs:
         shell: bash
         run: cp -a bluetooth_overlay/app/. project/app/
 
-      - name: Apply Android 16 LAN fix
-        run: python3 patches/apply_android16_lan_fix.py
-
       - name: Apply Tesla virtual IP fix
         run: python3 patches/apply_tesla_virtual_ip.py
 
@@ -68,11 +65,11 @@ jobs:
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-VirtualIP.apk
+        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-VirtualIP-Fixed.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-VirtualIP-apk
-          path: TeslaLyrics-VirtualIP.apk
+          name: TeslaLyrics-VirtualIP-Fixed-apk
+          path: TeslaLyrics-VirtualIP-Fixed.apk
           if-no-files-found: error
