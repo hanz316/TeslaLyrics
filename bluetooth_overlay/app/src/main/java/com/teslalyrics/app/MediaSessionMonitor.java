@@ -81,6 +81,7 @@ public final class MediaSessionMonitor {
             f.put("MediaNowPlayingArtist",artist);
             f.put("MediaNowPlayingAlbum",text(md,MediaMetadata.METADATA_KEY_ALBUM));
             f.put("MediaNowPlayingDuration",Math.max(0,md.getLong(MediaMetadata.METADATA_KEY_DURATION)));
+            f.put("MediaMediaId",text(md,MediaMetadata.METADATA_KEY_MEDIA_ID));
             f.put("MediaPlaybackSource",friendlyName(currentPackage));
             if(ps!=null){
                 f.put("MediaNowPlayingElapsed",positionNow(ps));int x=ps.getState();
