@@ -88,7 +88,9 @@ public final class MediaSessionMonitor {
                 else if(x==PlaybackState.STATE_STOPPED||x==PlaybackState.STATE_NONE||x==PlaybackState.STATE_ERROR)f.put("MediaPlaybackStatus","Stopped");
                 else f.put("MediaPlaybackStatus","Paused");
             }
-            processor.accept(f);state.setMediaConnected(true,currentPackage);
+            processor.accept(f);
+            PublicStateRelay.get().publish(f);
+            state.setMediaConnected(true,currentPackage);
         }catch(Exception e){state.log.add("Media publish error: "+e.getClass().getSimpleName());}
     }
     private static long positionNow(PlaybackState ps){
