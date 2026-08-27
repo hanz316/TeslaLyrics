@@ -53,6 +53,9 @@ jobs:
           PY
           unzip -q TeslaLyrics-project.zip -d project
 
+      - name: Apply partner registration patch
+        run: python3 patches/apply_partner_patch.py
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
