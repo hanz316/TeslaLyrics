@@ -1,4 +1,4 @@
-name: Build TeslaLyrics APK
+name: Build TeslaLyrics Bluetooth APK
 
 on:
   push:
@@ -18,15 +18,12 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import base64, hashlib
-
           names = [f"source/chunk_{i:02d}.b64" for i in range(6)]
           prefix = ''.join(Path(n).read_text() for n in names) + Path('source/chunk_06a.b64').read_text()
           tail = Path('source/chunk_06b.b64').read_text()
-
           expected_tail_blob = '255376dc0a621c5cf54efeb8bc9ecae8edc9bbd8'
           expected_zip_sha256 = '2ccad658458907eabf9ba481d75743e0eeb44bcee247a628d043a633450cfb28'
           alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-
           fixed = None
           for pos in range(len(tail) + 1):
               for ch in alphabet:
@@ -36,25 +33,18 @@ jobs:
                   if blob_sha == expected_tail_blob:
                       fixed = candidate
                       break
-              if fixed is not None:
-                  break
-
-          if fixed is None:
-              raise SystemExit('Could not reconstruct final Base64 chunk')
-
-          encoded = prefix + fixed
-          data = base64.b64decode(encoded, validate=True)
+              if fixed is not None: break
+          if fixed is None: raise SystemExit('Could not reconstruct source')
+          data = base64.b64decode(prefix + fixed, validate=True)
           actual = hashlib.sha256(data).hexdigest()
-          if actual != expected_zip_sha256:
-              raise SystemExit(f'ZIP checksum mismatch: {actual}')
-
+          if actual != expected_zip_sha256: raise SystemExit(f'ZIP checksum mismatch: {actual}')
           Path('TeslaLyrics-project.zip').write_bytes(data)
-          print('Verified source ZIP:', actual)
           PY
           unzip -q TeslaLyrics-project.zip -d project
 
-      - name: Apply partner registration patch
-        run: python3 patches/apply_partner_patch.py
+      - name: Apply Bluetooth Direct overlay
+        shell: bash
+        run: cp -a bluetooth_overlay/app/. project/app/
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -72,12 +62,11 @@ jobs:
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        shell: bash
-        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics.apk
+        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Bluetooth.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-apk
-          path: TeslaLyrics.apk
+          name: TeslaLyrics-Bluetooth-apk
+          path: TeslaLyrics-Bluetooth.apk
           if-no-files-found: error
