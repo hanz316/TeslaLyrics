@@ -44,7 +44,18 @@ jobs:
 
       - name: Apply hardened Bluetooth + relay overlay
         shell: bash
-        run: cp -a bluetooth_overlay/app/. project/app/
+        run: |
+          cp -a bluetooth_overlay/app/. project/app/
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('project/app/src/main/java/com/teslalyrics/app/TelemetryProcessor.java')
+          if p.exists():
+              s=p.read_text()
+              old='.toLowerCase();'
+              new='.toLowerCase(java.util.Locale.ROOT);'
+              if old in s:
+                  p.write_text(s.replace(old,new))
+          PY
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
