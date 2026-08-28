@@ -17,8 +17,6 @@ public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
     public static PublicStateRelay get(){return I;}
 
-    // Track changes / pause / seek are sent immediately. Heartbeats are deliberately
-    // much slower so the anonymous ntfy rate bucket is never ridden at its limit.
     private static final long HEARTBEAT_MS=15000;
     private final OkHttpClient client=new OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
@@ -28,6 +26,7 @@ public final class PublicStateRelay {
 
     private String endpoint="";
     private String lastFingerprint="";
+    private String lastLyricsTrackKey="";
     private long lastElapsed=0,lastMono=0;
     private boolean lastPlaying=false,sending=false,forceNext=false;
 
@@ -35,7 +34,6 @@ public final class PublicStateRelay {
         endpoint="https://ntfy.sh/"+RelayConfig.stateTopic(context);
     }
 
-    /** Force the next state publication, used when a newly opened car page asks for resync. */
     public synchronized void forceNext(){forceNext=true;}
 
     public synchronized void publish(JSONObject f){
@@ -43,7 +41,6 @@ public final class PublicStateRelay {
             if(endpoint.isEmpty())return;
             String title=f.optString("MediaNowPlayingTitle","").trim();
             if(title.isEmpty())return;
-            MultiLyricsFetcher.get().ensure(f);
 
             String artist=f.optString("MediaNowPlayingArtist","");
             String album=f.optString("MediaNowPlayingAlbum","");
@@ -55,7 +52,14 @@ public final class PublicStateRelay {
             long now=SystemClock.elapsedRealtime();
             long offset=AppState.get().effectiveOffsetMs();
 
-            String fp=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration+'\u0001'+status+'\u0001'+offset;
+            // A no-match song must not trigger five provider searches on every heartbeat.
+            String lyricsTrackKey=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration;
+            if(!lyricsTrackKey.equals(lastLyricsTrackKey)){
+                lastLyricsTrackKey=lyricsTrackKey;
+                MultiLyricsFetcher.get().ensure(f);
+            }
+
+            String fp=lyricsTrackKey+'\u0001'+status+'\u0001'+offset;
             long expected=lastElapsed+(lastPlaying&&lastMono>0?Math.max(0,now-lastMono):0);
             boolean drifted=lastMono>0&&Math.abs(elapsed-expected)>1400;
             boolean structural=!fp.equals(lastFingerprint)||lastMono==0||drifted||forceNext;
@@ -84,7 +88,6 @@ public final class PublicStateRelay {
             Request req=new Request.Builder()
                     .url(endpoint)
                     .post(body)
-                    // Heartbeats are live-only. State changes remain cached so a fresh page can recover instantly.
                     .header("Cache",cacheThis?"yes":"no")
                     .header("X-Tags","notes")
                     .build();
