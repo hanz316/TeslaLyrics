@@ -22,7 +22,7 @@ public final class LyricsService extends Service implements AppState.Listener {
     private LyricsRepository repo;
     private TelemetryProcessor processor;
     private MediaSessionMonitor media;
-    private RemoteControlBridge remote;
+    private LocalServer local;
     private final Handler main=new Handler(Looper.getMainLooper());
     private String lastNotificationTrack="";
     private boolean foregroundStarted=false,uiPending=false,shutdown=false;
@@ -36,7 +36,7 @@ public final class LyricsService extends Service implements AppState.Listener {
         processor=new TelemetryProcessor(repo);
         PublicStateRelay.get().configure(this);
         media=new MediaSessionMonitor(this,processor);
-        remote=new RemoteControlBridge(this,media);
+        local=new LocalServer(this);
         state.setGlobalOffsetMs(settings.globalOffset());
         state.addListener(this);
         createChannel();
@@ -53,11 +53,9 @@ public final class LyricsService extends Service implements AppState.Listener {
         }
         ensureForeground();
         state.setServiceRunning(true);
+        if(local!=null)local.start();
         media.start();
-        remote.start();
         if(ACTION_RESYNC.equals(a)){
-            PublicStateRelay.get().forceNext();
-            MultiLyricsFetcher.get().republishLatest();
             TrackMetadata t=state.trackCopy();
             if(!t.title.isEmpty())repo.load(t);
             media.scan();
@@ -79,7 +77,7 @@ public final class LyricsService extends Service implements AppState.Listener {
         if(shutdown)return;
         shutdown=true;
         main.removeCallbacks(uiBroadcast);
-        if(remote!=null)remote.stop();
+        if(local!=null)local.stop();
         if(media!=null)media.stop();
         if(state!=null){state.removeListener(this);state.setServiceRunning(false);}
     }
@@ -89,16 +87,17 @@ public final class LyricsService extends Service implements AppState.Listener {
 
     private void createChannel(){
         NotificationChannel c=new NotificationChannel("tesla_lyrics","Tesla Lyrics",NotificationManager.IMPORTANCE_LOW);
-        c.setDescription("保持播放器状态与 Tesla 歌词页面同步");
+        c.setDescription("保持播放器状态与 Tesla 局域网歌词页面同步");
         getSystemService(NotificationManager.class).createNotificationChannel(c);
     }
 
     private Notification notification(){
         TrackMetadata t=state.trackCopy();
-        String text=(t.title.isEmpty()?"等待手机播放器":t.title+" - "+t.artist)+"  hanz316.github.io/lyrics/";
+        String now=t.title.isEmpty()?"等待手机播放器":t.title+" - "+t.artist;
+        String text=now+"  "+LocalServer.primaryUrl();
         PendingIntent pi=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this,"tesla_lyrics")
-                .setContentTitle("Tesla Lyrics 正在运行")
+                .setContentTitle("Tesla Lyrics · LAN Probe")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentIntent(pi)
@@ -118,7 +117,7 @@ public final class LyricsService extends Service implements AppState.Listener {
     private void updateNotificationIfNeeded(){
         if(!foregroundStarted)return;
         TrackMetadata t=state.trackCopy();
-        String key=t.title+"\n"+t.artist;
+        String key=t.title+"\n"+t.artist+"\n"+NetworkUtils.bestLanAddress();
         if(key.equals(lastNotificationTrack))return;
         lastNotificationTrack=key;
         NotificationManager nm=getSystemService(NotificationManager.class);
