@@ -18,7 +18,7 @@ public final class AppState {
     private long baseElapsedMs=0,baseMonoMs=SystemClock.elapsedRealtime();
     private boolean playing=false,serviceRunning=false,mediaConnected=false,lyricsLoading=false;
     private long globalOffsetMs=0,trackOffsetMs=0,browserRevision=1;
-    private String playerPackage="",lyricsSource="",statusMessage="等待手机播放器",lanUrl="http://0.0.0.0:8765";
+    private String playerPackage="",lyricsSource="",statusMessage="等待手机播放器",lanUrl="";
     private int carClients=0; private double lastDriftMs=0;
     private AppState(){}
     public void addListener(Listener l){listeners.addIfAbsent(l);} public void removeListener(Listener l){listeners.remove(l);} private void fire(){for(Listener l:listeners)l.onStateChanged();}
@@ -31,6 +31,7 @@ public final class AppState {
     public synchronized void setMediaConnected(boolean v,String pkg){mediaConnected=v;playerPackage=pkg==null?"":pkg;if(v&&(statusMessage.startsWith("等待")||statusMessage.contains("通知使用权")))statusMessage="播放器已连接";fire();}
     public synchronized void setTelemetryConnected(boolean v){setMediaConnected(v,v?"Simulation":"");}
     public synchronized void setOauthOk(boolean v){}
+    // Kept for compatibility with the original local-server code, which is no longer started.
     public synchronized void setLanUrl(String s){lanUrl=s;fire();} public synchronized void setCarClients(int n){carClients=Math.max(0,n);fire();}
     public synchronized void setStatus(String s){statusMessage=s;browserRevision++;fire();}
     public synchronized void setTrackSkeleton(String title){if(title!=null)track.title=title;lyricsLoading=true;lyrics=new ArrayList<>();lyricsSource="";statusMessage="正在加载歌词";browserRevision++;fire();}
@@ -43,6 +44,6 @@ public final class AppState {
     public synchronized void setPlaying(boolean v){long now=SystemClock.elapsedRealtime();if(playing)baseElapsedMs+=now-baseMonoMs;playing=v;baseMonoMs=now;statusMessage=v?"播放中":"已暂停";fire();}
     public synchronized JSONObject toJson(){JSONObject o=new JSONObject();try{o.put("title",track.title);o.put("artist",track.artist);o.put("album",track.album);o.put("source",track.source);o.put("duration",track.durationMs);o.put("elapsed",elapsedMs());o.put("serverMono",SystemClock.elapsedRealtime());o.put("playing",playing);o.put("globalOffset",globalOffsetMs);o.put("trackOffset",trackOffsetMs);o.put("effectiveOffset",globalOffsetMs+trackOffsetMs);o.put("loading",lyricsLoading);o.put("status",statusMessage);JSONArray a=new JSONArray();for(LyricsLine line:lyrics){JSONObject x=new JSONObject();x.put("t",line.timeMs);x.put("text",line.text);a.put(x);}o.put("lyrics",a);}catch(Exception ignored){}return o;}
     public synchronized JSONObject toTimelineJson(){JSONObject o=new JSONObject();try{o.put("patch",true);o.put("elapsed",elapsedMs());o.put("serverMono",SystemClock.elapsedRealtime());o.put("playing",playing);o.put("effectiveOffset",globalOffsetMs+trackOffsetMs);o.put("status",statusMessage);}catch(Exception ignored){}return o;}
-    public synchronized String diagnostics(){return "Service: "+(serviceRunning?"Running":"Stopped")+"\nMedia session: "+(mediaConnected?"Connected":"Disconnected")+"\nPlayer: "+MediaSessionMonitor.friendlyName(playerPackage)+"\nTrack: "+track.title+" - "+track.artist+"\nPlayer elapsed base: "+baseElapsedMs+" ms\nLocal elapsed: "+elapsedMs()+" ms\nDrift: "+Math.round(lastDriftMs)+" ms\nGlobal Offset: "+globalOffsetMs+" ms\nTrack Offset: "+trackOffsetMs+" ms\nLyrics source: "+lyricsSource+"\nLyrics lines: "+lyrics.size()+"\nLocal Server: "+lanUrl+"\nConnected car clients: "+carClients;}
+    public synchronized String diagnostics(){return "Service: "+(serviceRunning?"Running":"Stopped")+"\nMedia session: "+(mediaConnected?"Connected":"Disconnected")+"\nPlayer: "+MediaSessionMonitor.friendlyName(playerPackage)+"\nTrack: "+track.title+" - "+track.artist+"\nPlayer elapsed base: "+baseElapsedMs+" ms\nLocal elapsed: "+elapsedMs()+" ms\nDrift: "+Math.round(lastDriftMs)+" ms\nLyrics source: "+lyricsSource+"\nLyrics lines: "+lyrics.size()+"\nRelay: secure public HTTPS/WSS";}
     private static long clamp(long v,long a,long b){return Math.max(a,Math.min(b,v));} private static String nz(String s){return s==null?"":s;}
 }
