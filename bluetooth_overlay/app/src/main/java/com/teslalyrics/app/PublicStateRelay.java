@@ -92,7 +92,7 @@ public final class PublicStateRelay {
             JSONObject copy;
             synchronized(PublicStateRelay.this){
                 recoveryFuture=null;
-                copy=latestFrame==null?null:new JSONObject(latestFrame.toString());
+                copy=latestFrame;
             }
             if(copy!=null)publish(copy);
         },delay,TimeUnit.MILLISECONDS);
