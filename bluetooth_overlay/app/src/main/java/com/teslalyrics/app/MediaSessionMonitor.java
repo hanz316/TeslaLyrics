@@ -176,6 +176,7 @@ public final class MediaSessionMonitor {
                     if(playing)tc.pause();else tc.play();
                 }else if("resync".equals(action)){
                     PublicStateRelay.get().forceNext();
+                    MultiLyricsFetcher.get().republishLatest();
                     publish();
                     return;
                 }
