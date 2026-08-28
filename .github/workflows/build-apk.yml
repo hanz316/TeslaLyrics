@@ -1,4 +1,4 @@
-name: Build TeslaLyrics Bluetooth APK
+name: Build TeslaLyrics Hardened APK
 
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
           PY
           unzip -q TeslaLyrics-project.zip -d project
 
-      - name: Apply Bluetooth Direct + public relay overlay
+      - name: Apply hardened Bluetooth + relay overlay
         shell: bash
         run: cp -a bluetooth_overlay/app/. project/app/
 
@@ -57,16 +57,20 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Android lint
+        working-directory: project
+        run: gradle --no-daemon lintDebug
+
       - name: Build debug APK
         working-directory: project
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-RemoteControl.apk
+        run: cp project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Hardened.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-RemoteControl-apk
-          path: TeslaLyrics-RemoteControl.apk
+          name: TeslaLyrics-Hardened-apk
+          path: TeslaLyrics-Hardened.apk
           if-no-files-found: error
