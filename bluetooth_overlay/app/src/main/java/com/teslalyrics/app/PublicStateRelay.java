@@ -28,10 +28,14 @@ public final class PublicStateRelay {
     private String lastFingerprint="";
     private String lastLyricsTrackKey="";
     private long lastElapsed=0,lastMono=0;
-    private boolean lastPlaying=false,sending=false,forceNext=false;
+    private boolean lastPlaying=false,sending=false,forceNext=false,successLogged=false;
 
     public synchronized void configure(Context context){
         endpoint="https://ntfy.sh/"+RelayConfig.stateTopic(context);
+        lastFingerprint="";
+        lastMono=0;
+        forceNext=true;
+        successLogged=false;
     }
 
     public synchronized void forceNext(){forceNext=true;}
@@ -39,7 +43,7 @@ public final class PublicStateRelay {
     public synchronized void publish(JSONObject f){
         try{
             if(endpoint.isEmpty())return;
-            String title=f.optString("MediaNowPlayingTitle","").trim();
+            String title=f.optString("MediaNowPlayingTitle,"").trim();
             if(title.isEmpty())return;
 
             String artist=f.optString("MediaNowPlayingArtist","");
@@ -52,7 +56,6 @@ public final class PublicStateRelay {
             long now=SystemClock.elapsedRealtime();
             long offset=AppState.get().effectiveOffsetMs();
 
-            // A no-match song must not trigger five provider searches on every heartbeat.
             String lyricsTrackKey=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration;
             if(!lyricsTrackKey.equals(lastLyricsTrackKey)){
                 lastLyricsTrackKey=lyricsTrackKey;
@@ -93,10 +96,11 @@ public final class PublicStateRelay {
                     .build();
             client.newCall(req).enqueue(new Callback(){
                 @Override public void onFailure(Call call, IOException e){
-                    synchronized(PublicStateRelay.this){sending=false;forceNext=true;}
+                    synchronized(PublicStateRelay.this){sending=false;forceNext=true;successLogged=false;}
                     AppState.get().log.add("Public relay retry: "+e.getClass().getSimpleName());
                 }
                 @Override public void onResponse(Call call, Response response){
+                    boolean logConnected=false;
                     try{
                         synchronized(PublicStateRelay.this){
                             sending=false;
@@ -105,14 +109,19 @@ public final class PublicStateRelay {
                                 lastElapsed=sentElapsed;
                                 lastMono=sentMono;
                                 lastPlaying=sentPlaying;
-                            }else forceNext=true;
+                                if(!successLogged){successLogged=true;logConnected=true;}
+                            }else{
+                                forceNext=true;
+                                successLogged=false;
+                            }
                         }
+                        if(logConnected)AppState.get().log.add("Public relay connected");
                         if(!response.isSuccessful())AppState.get().log.add("Public relay HTTP "+response.code());
                     }finally{response.close();}
                 }
             });
         }catch(Exception e){
-            sending=false;forceNext=true;
+            synchronized(this){sending=false;forceNext=true;successLogged=false;}
             AppState.get().log.add("Public relay error: "+e.getClass().getSimpleName());
         }
     }
