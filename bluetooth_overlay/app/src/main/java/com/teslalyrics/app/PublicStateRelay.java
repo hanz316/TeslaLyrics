@@ -13,14 +13,13 @@ import okhttp3.Response;
 import java.io.IOException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
     public static PublicStateRelay get(){return I;}
 
-    // ntfy.sh replenishes the anonymous request bucket slowly. A 30 s heartbeat is
-    // enough for reconnect recovery while leaving a large amount of rate-limit headroom.
     private static final long HEARTBEAT_MS=30000;
     private static final long MIN_429_BACKOFF_MS=60000;
     private static final long MAX_429_BACKOFF_MS=300000;
@@ -46,15 +45,22 @@ public final class PublicStateRelay {
     private int pendingLyricsScore=0;
     private boolean pendingLyricsScheduled=false;
 
+    private JSONObject latestFrame=null;
+    private ScheduledFuture<?> recoveryFuture=null;
+
     public synchronized void configure(Context context){
         endpoint="https://ntfy.sh/"+RelayConfig.stateTopic(context);
         lastFingerprint="";
         lastMono=0;
         forceNext=true;
         successLogged=false;
+        if(recoveryFuture!=null){recoveryFuture.cancel(false);recoveryFuture=null;}
     }
 
-    public synchronized void forceNext(){forceNext=true;}
+    public synchronized void forceNext(){
+        forceNext=true;
+        if(!inBackoff())scheduleRecovery(250);
+    }
 
     private synchronized boolean inBackoff(){
         long now=SystemClock.elapsedRealtime();
@@ -78,6 +84,20 @@ public final class PublicStateRelay {
         return 0;
     }
 
+    private synchronized void scheduleRecovery(long delayMs){
+        if(endpoint.isEmpty()||latestFrame==null)return;
+        if(recoveryFuture!=null)recoveryFuture.cancel(false);
+        final long delay=Math.max(100,delayMs);
+        recoveryFuture=scheduler.schedule(()->{
+            JSONObject copy;
+            synchronized(PublicStateRelay.this){
+                recoveryFuture=null;
+                copy=latestFrame==null?null:new JSONObject(latestFrame.toString());
+            }
+            if(copy!=null)publish(copy);
+        },delay,TimeUnit.MILLISECONDS);
+    }
+
     private synchronized void enter429Backoff(Response response){
         sending=false;
         forceNext=true;
@@ -87,12 +107,14 @@ public final class PublicStateRelay {
         backoffUntilMono=SystemClock.elapsedRealtime()+delay;
         backoffLogged=true;
         AppState.get().log.add("Relay HTTP 429; pause "+(delay/1000)+"s");
+        scheduleRecovery(delay+1200);
     }
 
     private synchronized void markRelaySuccess(){
         rateLimitStrikes=0;
         backoffUntilMono=0;
         backoffLogged=false;
+        if(recoveryFuture!=null){recoveryFuture.cancel(false);recoveryFuture=null;}
         if(!successLogged){
             successLogged=true;
             AppState.get().log.add("Public relay connected");
@@ -101,6 +123,7 @@ public final class PublicStateRelay {
 
     public synchronized void publish(JSONObject f){
         try{
+            latestFrame=new JSONObject(f.toString());
             if(endpoint.isEmpty()||inBackoff())return;
             String title=f.optString("MediaNowPlayingTitle","").trim();
             if(title.isEmpty())return;
@@ -159,8 +182,8 @@ public final class PublicStateRelay {
                     synchronized(PublicStateRelay.this){
                         sending=false;
                         forceNext=true;
-                        // Network failures get a short cooldown too, preventing a reconnect storm.
                         backoffUntilMono=Math.max(backoffUntilMono,SystemClock.elapsedRealtime()+15000);
+                        scheduleRecovery(16200);
                     }
                     AppState.get().log.add("Public relay retry: "+e.getClass().getSimpleName());
                 }
@@ -178,6 +201,7 @@ public final class PublicStateRelay {
                             }else{
                                 forceNext=true;
                                 backoffUntilMono=Math.max(backoffUntilMono,SystemClock.elapsedRealtime()+15000);
+                                scheduleRecovery(16200);
                             }
                         }
                         if(response.isSuccessful())schedulePendingLyrics();
@@ -187,6 +211,7 @@ public final class PublicStateRelay {
             });
         }catch(Exception e){
             sending=false;forceNext=true;
+            scheduleRecovery(15000);
             AppState.get().log.add("Public relay error: "+e.getClass().getSimpleName());
         }
     }
@@ -207,7 +232,6 @@ public final class PublicStateRelay {
             if(pendingLyricsKey.isEmpty()||pendingLyricsScheduled||inBackoff())return;
             pendingLyricsScheduled=true;
         }
-        // Leave more than one ntfy refill interval between state and lyric upload.
         scheduler.schedule(()->{
             synchronized(PublicStateRelay.this){pendingLyricsScheduled=false;}
             sendPendingLyricsNow();
