@@ -8,8 +8,8 @@ android {
         applicationId 'com.teslalyrics.app'
         minSdk 26
         targetSdk 35
-        versionCode 14
-        versionName '0.9.5-autorecover'
+        versionCode 15
+        versionName '0.9.6-eventrelay'
     }
 
     buildTypes {
