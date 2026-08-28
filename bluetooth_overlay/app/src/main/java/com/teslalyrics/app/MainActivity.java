@@ -22,11 +22,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public final class MainActivity extends Activity {
-    private static final String TESLA_URL="https://hanz316.github.io/lyrics/";
-    private static final String INIT_URL="https://hanz316.github.io/l/";
     private final AppState state=AppState.get();
     private LinearLayout content;
-    private TextView homeStatus,diag,logs,permissionStatus;
+    private TextView homeStatus,lanStatus,diag,logs,permissionStatus;
     private final BroadcastReceiver rx=new BroadcastReceiver(){public void onReceive(Context c,Intent i){refresh();}};
 
     @Override public void onCreate(Bundle b){
@@ -63,7 +61,7 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(24,20,24,20);
         root.setBackgroundColor(Color.rgb(15,15,17));
-        root.addView(txt("TESLA LYRICS",24,true));
+        root.addView(txt("TESLA LYRICS · LAN PROBE",24,true));
         LinearLayout tabs=new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.addView(tab("首页",0));
@@ -88,29 +86,25 @@ public final class MainActivity extends Activity {
         LinearLayout r=row();
         r.addView(make("启动服务",this::startCore));
         r.addView(make("重新扫描播放器",()->send(LyricsService.ACTION_SCAN)));
-        r.addView(make("立即重新同步",()->send(LyricsService.ACTION_RESYNC)));
+        r.addView(make("重新检测局域网",this::refresh));
         content.addView(r);
 
-        content.addView(txt("车机连接",18,true));
+        content.addView(txt("局域网直连验证",18,true));
+        lanStatus=txt("",15,false);content.addView(lanStatus);
         content.addView(txt(
-                "个人版已恢复固定通信通道，不需要配对码。\n\n"+
-                "如果车机之前用过配对版，只需在 Tesla 浏览器打开一次：\n"+INIT_URL+"\n"+
-                "页面会自动修复并跳回歌词页，不需要输入任何东西。",15,false));
-
-        content.addView(txt("使用方法",18,true));
-        content.addView(txt(
-                "1. 手机连接 Tesla 蓝牙并播放音乐\n"+
-                "2. Tesla 音源选择 Bluetooth\n"+
-                "3. Tesla 连接手机热点\n"+
-                "4. Tesla 浏览器打开：\n"+TESLA_URL+"\n\n"+
-                "以后直接打开收藏的歌词网址即可。\n\n"+
-                "歌词延迟直接在车机左下角齿轮里调整。\n\n"+
-                "支持网易云音乐、Android Apple Music、QQ音乐、Spotify、YouTube Music。",15,false));
+                "测试步骤：\n"+
+                "1. 打开手机热点\n"+
+                "2. 让 Tesla 连接这个热点\n"+
+                "3. 在 Tesla 浏览器打开上面显示的 8765 地址\n"+
+                "4. 如果 8765 不通，再测试 8080 地址\n\n"+
+                "成功页面会显示：TESLA LOCAL LINK OK\n"+
+                "并继续自动测试 WebSocket。\n\n"+
+                "如果 HTTP 和 WebSocket 都成功，就证明热点局域网可以直接作为最终通信层，后续不需要 ntfy。",15,false));
     }
 
     private void diagnosticsPage(){
         rowButton("清空歌词缓存",()->{new LyricsDb(this).clearAll();Toast.makeText(this,"缓存已清空",Toast.LENGTH_SHORT).show();});
-        rowButton("立即重新同步",()->send(LyricsService.ACTION_RESYNC));
+        rowButton("重新扫描播放器",()->send(LyricsService.ACTION_SCAN));
         rowButton("停止服务",()->send(LyricsService.ACTION_STOP));
         diag=txt("",15,false);logs=txt("",13,false);
         content.addView(txt("诊断",18,true));content.addView(diag);
@@ -142,12 +136,14 @@ public final class MainActivity extends Activity {
         if(homeStatus!=null)homeStatus.setText(
                 "服务："+state.diagnostics().split("\\n")[0].replace("Service: ","")+"\n"+
                 "播放器："+(state.mediaConnected()?MediaSessionMonitor.friendlyName(state.playerPackage()):"等待连接")+"\n\n"+
-                "当前：\n"+(t.title.isEmpty()?"等待手机播放器播放":t.title)+"\n"+t.artist+"\n\n"+
-                "固定车机网址：\n"+TESLA_URL);
+                "当前：\n"+(t.title.isEmpty()?"等待手机播放器播放":t.title)+"\n"+t.artist);
         if(permissionStatus!=null)permissionStatus.setText(
                 "通知使用权："+(access?"已开启":"未开启")+
                 (access?"\n已可读取手机播放器 MediaSession":"\n请开启，否则无法读取当前歌曲和进度"));
-        if(diag!=null)diag.setText(state.diagnostics());
+        if(lanStatus!=null)lanStatus.setText(
+                LocalServer.statusReport()+"\n\n检测到的局域网地址：\n"+NetworkUtils.candidateReport()+
+                "\n\n8080 备用：\nhttp://"+NetworkUtils.bestLanAddress()+":8080/");
+        if(diag!=null)diag.setText(state.diagnostics()+"\n\n"+LocalServer.statusReport()+"\n\nInterfaces:\n"+NetworkUtils.candidateReport());
         if(logs!=null)logs.setText(String.join("\n",state.log.snapshot()));
     }
 
