@@ -8,8 +8,8 @@ android {
         applicationId 'com.teslalyrics.app'
         minSdk 26
         targetSdk 35
-        versionCode 15
-        versionName '0.9.6-eventrelay'
+        versionCode 16
+        versionName '0.9.7-lanprobe'
     }
 
     buildTypes {
