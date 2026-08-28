@@ -18,8 +18,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -29,15 +31,16 @@ public final class MultiLyricsFetcher {
     public static MultiLyricsFetcher get(){return I;}
 
     private final OkHttpClient http=new OkHttpClient.Builder()
-            .connectTimeout(7, TimeUnit.SECONDS)
-            .readTimeout(9, TimeUnit.SECONDS)
+            .connectTimeout(7,TimeUnit.SECONDS)
+            .readTimeout(9,TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
-    // At most two tracks may be resolving at once. This prevents rapid skipping from creating a thread storm.
-    private final ExecutorService pool=Executors.newFixedThreadPool(2);
+    private final ExecutorService trackPool=Executors.newFixedThreadPool(2);
+    private final ExecutorService providerPool=Executors.newFixedThreadPool(6);
     private final Set<String> done=Collections.synchronizedSet(new HashSet<>());
     private final Set<String> loading=Collections.synchronizedSet(new HashSet<>());
-    private volatile String latestKey="";
+    private volatile String latestKey="",publishedKey="",publishedProvider="",publishedLrc="";
+    private volatile int publishedScore=0;
     private static final int MAX_DONE=96;
     private static final Pattern TS=Pattern.compile("\\[(\\d{1,3}):(\\d{1,2}(?:\\.\\d{1,3})?)\\]");
     private static final Pattern BRACKETS=Pattern.compile("\\s*[\\(（\\[【].*?[\\)）\\]】]\\s*");
@@ -60,34 +63,32 @@ public final class MultiLyricsFetcher {
         String key=title+"|"+artist+"|"+album+"|"+duration;
         latestKey=key;
         if(done.contains(key)||!loading.add(key))return;
-        pool.execute(()->fetch(key,title,artist,album,duration,source,mediaId));
+        trackPool.execute(()->fetch(key,title,artist,album,duration,source,mediaId));
+    }
+
+    /** Re-send the already matched lyrics after the Tesla page reconnects; no provider request is repeated. */
+    public void republishLatest(){
+        String key=publishedKey,lrc=publishedLrc,provider=publishedProvider;
+        int score=publishedScore;
+        if(!key.isEmpty()&&key.equals(latestKey)&&validLrc(lrc))PublicStateRelay.get().publishLyrics(key,provider,lrc,score);
     }
 
     private void fetch(String key,String title,String artist,String album,long duration,String playerSource,String mediaId){
         try{
-            List<Candidate> all=Collections.synchronizedList(new ArrayList<>());
-            List<Runnable> tasks=new ArrayList<>();
-            tasks.add(()->safeAdd(all,fetchLrclib(title,artist,duration)));
-            tasks.add(()->safeAdd(all,fetchLrcApi(title,artist,album)));
-            tasks.add(()->safeAdd(all,fetchNetease(title,artist,duration,mediaId)));
-            tasks.add(()->safeAdd(all,fetchQq(title,artist,duration)));
-            tasks.add(()->safeAdd(all,fetchKugou(title,artist,duration)));
-
-            List<Thread> threads=new ArrayList<>();
-            for(Runnable r:tasks){
-                Thread t=new Thread(r,"lyrics-provider");
-                t.setDaemon(true);
-                t.start();
-                threads.add(t);
-            }
-            long deadline=System.currentTimeMillis()+9500;
-            for(Thread t:threads){
-                long remain=Math.max(1,deadline-System.currentTimeMillis());
-                try{t.join(remain);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
-            }
-            for(Thread t:threads)if(t.isAlive())t.interrupt();
-
-            // A fast track change makes the old result irrelevant. Never upload stale lyrics.
+            List<Callable<List<Candidate>>> tasks=new ArrayList<>();
+            tasks.add(()->fetchLrclib(title,artist,duration));
+            tasks.add(()->fetchLrcApi(title,artist,album));
+            tasks.add(()->fetchNetease(title,artist,duration,mediaId));
+            tasks.add(()->fetchQq(title,artist,duration));
+            tasks.add(()->fetchKugou(title,artist,duration));
+            List<Candidate> all=new ArrayList<>();
+            try{
+                List<Future<List<Candidate>>> futures=providerPool.invokeAll(tasks,9500,TimeUnit.MILLISECONDS);
+                for(Future<List<Candidate>> f:futures){
+                    if(f.isCancelled())continue;
+                    try{List<Candidate> x=f.get();if(x!=null)for(Candidate c:x)if(c!=null&&validLrc(c.lrc))all.add(c);}catch(Exception ignored){}
+                }
+            }catch(InterruptedException e){Thread.currentThread().interrupt();return;}
             if(!key.equals(latestKey))return;
 
             for(Candidate c:all)c.score=score(c,title,artist,duration,playerSource);
@@ -95,32 +96,25 @@ public final class MultiLyricsFetcher {
             Candidate best=all.isEmpty()?null:all.get(0);
             if(best!=null&&best.score>=78&&validLrc(best.lrc)){
                 rememberDone(key);
-                AppState.get().log.add("Lyrics matched: "+best.provider+" score="+Math.round(best.score));
-                PublicStateRelay.get().publishLyrics(key,best.provider,best.lrc,(int)Math.round(best.score));
-            }else{
-                AppState.get().log.add("Lyrics multi-source: no safe match"+(best==null?"":" best="+best.provider+" "+Math.round(best.score)));
-            }
+                publishedKey=key;publishedProvider=best.provider;publishedLrc=best.lrc;publishedScore=(int)Math.round(best.score);
+                AppState.get().log.add("Lyrics matched: "+best.provider+" score="+publishedScore);
+                PublicStateRelay.get().publishLyrics(key,best.provider,best.lrc,publishedScore);
+            }else AppState.get().log.add("Lyrics multi-source: no safe match"+(best==null?"":" best="+best.provider+" "+Math.round(best.score)));
         }finally{loading.remove(key);}
     }
 
     private void rememberDone(String key){
         synchronized(done){
             done.add(key);
-            if(done.size()>MAX_DONE){
-                Iterator<String> it=done.iterator();
-                while(done.size()>MAX_DONE&&it.hasNext()){it.next();it.remove();}
-            }
+            if(done.size()>MAX_DONE){Iterator<String> it=done.iterator();while(done.size()>MAX_DONE&&it.hasNext()){it.next();it.remove();}}
         }
     }
-
-    private void safeAdd(List<Candidate> dst,List<Candidate> src){if(src!=null)for(Candidate c:src)if(c!=null&&validLrc(c.lrc))dst.add(c);}
 
     private List<Candidate> fetchLrclib(String title,String artist,long duration){
         List<Candidate> out=new ArrayList<>();
         try{
             for(String[] q:queries(title,artist)){
-                String url="https://lrclib.net/api/search?track_name="+enc(q[0])+"&artist_name="+enc(q[1]);
-                JSONArray a=new JSONArray(get(url,null));
+                JSONArray a=new JSONArray(get("https://lrclib.net/api/search?track_name="+enc(q[0])+"&artist_name="+enc(q[1]),null));
                 for(int i=0;i<Math.min(12,a.length());i++){
                     JSONObject x=a.optJSONObject(i);if(x==null)continue;
                     String l=x.optString("syncedLyrics","");if(!validLrc(l))continue;
@@ -140,8 +134,7 @@ public final class MultiLyricsFetcher {
                 JSONArray a=new JSONArray(get(url,null));
                 for(int i=0;i<Math.min(12,a.length());i++){
                     JSONObject x=a.optJSONObject(i);if(x==null)continue;
-                    String l=x.optString("lyrics","");
-                    if(validLrc(l))out.add(new Candidate("LrcAPI/酷狗聚合",x.optString("title",q[0]),x.optString("artist",q[1]),0,l));
+                    String l=x.optString("lyrics","");if(validLrc(l))out.add(new Candidate("LrcAPI/酷狗聚合",x.optString("title",q[0]),x.optString("artist",q[1]),0,l));
                 }
                 if(!out.isEmpty())break;
             }
@@ -158,20 +151,13 @@ public final class MultiLyricsFetcher {
             }
             if(!out.isEmpty())return out;
             for(String[] q:queries(title,artist)){
-                String url="https://music.163.com/api/search/get/web?s="+enc((q[0]+" "+q[1]).trim())+"&type=1&limit=12";
-                JSONObject root=new JSONObject(get(url,"https://music.163.com/"));
-                JSONObject result=root.optJSONObject("result");
-                JSONArray songs=result==null?null:result.optJSONArray("songs");
-                if(songs==null)continue;
+                JSONObject root=new JSONObject(get("https://music.163.com/api/search/get/web?s="+enc((q[0]+" "+q[1]).trim())+"&type=1&limit=12","https://music.163.com/"));
+                JSONObject result=root.optJSONObject("result");JSONArray songs=result==null?null:result.optJSONArray("songs");if(songs==null)continue;
                 for(int i=0;i<Math.min(10,songs.length());i++){
                     JSONObject s=songs.optJSONObject(i);if(s==null)continue;
-                    String n=s.optString("name","");
-                    String ar=joinNames(s.optJSONArray("artists"));
-                    long d=s.optLong("duration",0);
-                    String id=String.valueOf(s.optLong("id",0));
+                    String n=s.optString("name","");String ar=joinNames(s.optJSONArray("artists"));long d=s.optLong("duration",0);String id=String.valueOf(s.optLong("id",0));
                     if(metaScore(n,ar,d,title,artist,duration)<58)continue;
-                    String l=neteaseLyric(id);
-                    if(validLrc(l))out.add(new Candidate("网易云音乐",n,ar,d,l));
+                    String l=neteaseLyric(id);if(validLrc(l))out.add(new Candidate("网易云音乐",n,ar,d,l));
                     if(out.size()>=4)break;
                 }
                 if(!out.isEmpty())break;
@@ -181,10 +167,8 @@ public final class MultiLyricsFetcher {
     }
 
     private String neteaseLyric(String id)throws Exception{
-        String url="https://music.163.com/api/song/lyric?id="+enc(id)+"&lv=-1&kv=-1&tv=-1";
-        JSONObject x=new JSONObject(get(url,"https://music.163.com/"));
-        JSONObject l=x.optJSONObject("lrc");
-        return l==null?"":l.optString("lyric","");
+        JSONObject x=new JSONObject(get("https://music.163.com/api/song/lyric?id="+enc(id)+"&lv=-1&kv=-1&tv=-1","https://music.163.com/"));
+        JSONObject l=x.optJSONObject("lrc");return l==null?"":l.optString("lyric","");
     }
 
     private List<Candidate> fetchQq(String title,String artist,long duration){
@@ -197,16 +181,14 @@ public final class MultiLyricsFetcher {
                 JSONObject req=new JSONObject().put("method","DoSearchForQQMusicDesktop").put("module","music.search.SearchCgiService").put("param",param);
                 body.put("comm",comm).put("req",req);
                 JSONObject root=new JSONObject(postJson("https://u.y.qq.com/cgi-bin/musicu.fcg",body.toString(),"https://y.qq.com/"));
-                JSONObject r=root.optJSONObject("req");JSONObject data=r==null?null:r.optJSONObject("data");JSONObject b=data==null?null:data.optJSONObject("body");JSONObject song=b==null?null:b.optJSONObject("song");JSONArray list=song==null?null:song.optJSONArray("list");if(list==null)continue;
+                JSONObject r=root.optJSONObject("req"),data=r==null?null:r.optJSONObject("data"),b=data==null?null:data.optJSONObject("body"),song=b==null?null:b.optJSONObject("song");JSONArray list=song==null?null:song.optJSONArray("list");if(list==null)continue;
                 for(int i=0;i<Math.min(10,list.length());i++){
                     JSONObject s=list.optJSONObject(i);if(s==null)continue;
-                    String n=s.optString("title",s.optString("name",""));String ar=joinNames(s.optJSONArray("singer"));long d=s.optLong("interval",0)*1000L;String mid=s.optString("mid","");
+                    String n=s.optString("title",s.optString("name","")),ar=joinNames(s.optJSONArray("singer")),mid=s.optString("mid","");long d=s.optLong("interval",0)*1000L;
                     if(mid.isEmpty()||metaScore(n,ar,d,title,artist,duration)<58)continue;
-                    String url="https://i.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid="+enc(mid)+"&g_tk=5381&format=json&inCharset=utf8&outCharset=utf-8&nobase64=1";
-                    JSONObject lx=new JSONObject(get(url,"https://y.qq.com/"));String l=lx.optString("lyric","");
+                    JSONObject lx=new JSONObject(get("https://i.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid="+enc(mid)+"&g_tk=5381&format=json&inCharset=utf8&outCharset=utf-8&nobase64=1","https://y.qq.com/"));String l=lx.optString("lyric","");
                     if(!l.contains("[")&&!l.isEmpty())try{l=new String(Base64.decode(l,Base64.DEFAULT),StandardCharsets.UTF_8);}catch(Exception ignored){}
-                    if(validLrc(l))out.add(new Candidate("QQ音乐",n,ar,d,l));
-                    if(out.size()>=4)break;
+                    if(validLrc(l))out.add(new Candidate("QQ音乐",n,ar,d,l));if(out.size()>=4)break;
                 }
                 if(!out.isEmpty())break;
             }
@@ -218,20 +200,16 @@ public final class MultiLyricsFetcher {
         List<Candidate> out=new ArrayList<>();
         try{
             for(String[] q:queries(title,artist)){
-                String kw=(q[0]+" "+q[1]).trim();
-                String su="https://mobileservice.kugou.com/api/v3/search/song?version=9108&plat=0&pagesize=12&page=1&keyword="+enc(kw);
-                JSONObject sr=new JSONObject(get(su,null));JSONObject data=sr.optJSONObject("data");JSONArray info=data==null?null:data.optJSONArray("info");if(info==null)continue;
+                JSONObject sr=new JSONObject(get("https://mobileservice.kugou.com/api/v3/search/song?version=9108&plat=0&pagesize=12&page=1&keyword="+enc((q[0]+" "+q[1]).trim()),null));
+                JSONObject data=sr.optJSONObject("data");JSONArray info=data==null?null:data.optJSONArray("info");if(info==null)continue;
                 for(int i=0;i<Math.min(10,info.length());i++){
                     JSONObject s=info.optJSONObject(i);if(s==null)continue;
-                    String[] pa=splitFilename(s.optString("filename",""));String n=pa[1],ar=pa[0];long d=s.optLong("duration",0)*1000L;String hash=s.optString("hash","");
+                    String[] pa=splitFilename(s.optString("filename",""));String n=pa[1],ar=pa[0],hash=s.optString("hash","");long d=s.optLong("duration",0)*1000L;
                     if(hash.isEmpty()||metaScore(n,ar,d,title,artist,duration)<58)continue;
-                    String cu="https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration=&hash="+enc(hash)+"&album_audio_id=";
-                    JSONObject cr=new JSONObject(get(cu,null));JSONArray cand=cr.optJSONArray("candidates");if(cand==null||cand.length()==0)continue;JSONObject c=cand.optJSONObject(0);if(c==null)continue;
-                    String du="https://lyrics.kugou.com/download?ver=1&client=pc&id="+enc(c.optString("id",""))+"&accesskey="+enc(c.optString("accesskey",""))+"&fmt=lrc&charset=utf8";
-                    JSONObject dr=new JSONObject(get(du,null));String content=dr.optString("content","");String l="";
+                    JSONObject cr=new JSONObject(get("https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration=&hash="+enc(hash)+"&album_audio_id=",null));JSONArray cand=cr.optJSONArray("candidates");if(cand==null||cand.length()==0)continue;JSONObject c=cand.optJSONObject(0);if(c==null)continue;
+                    JSONObject dr=new JSONObject(get("https://lyrics.kugou.com/download?ver=1&client=pc&id="+enc(c.optString("id",""))+"&accesskey="+enc(c.optString("accesskey",""))+"&fmt=lrc&charset=utf8",null));String content=dr.optString("content",""),l="";
                     if(!content.isEmpty())try{l=new String(Base64.decode(content,Base64.DEFAULT),StandardCharsets.UTF_8);}catch(Exception ignored){}
-                    if(validLrc(l))out.add(new Candidate("酷狗音乐",n,ar,d,l));
-                    if(out.size()>=4)break;
+                    if(validLrc(l))out.add(new Candidate("酷狗音乐",n,ar,d,l));if(out.size()>=4)break;
                 }
                 if(!out.isEmpty())break;
             }
@@ -245,44 +223,23 @@ public final class MultiLyricsFetcher {
         if(c.provider.contains("QQ")&&playerSource.contains("QQ"))s+=18;
         if(c.provider.contains("LRCLIB"))s+=4;
         int count=timeLineCount(c.lrc);if(count>=20)s+=5;else if(count<6)s-=30;
-        if(duration>0){
-            long last=lastTimestamp(c.lrc);
-            if(last>0){long diff=Math.abs(duration-last);if(diff<=25000)s+=10;else if(diff<=45000)s+=3;else if(diff>75000)s-=35;}
-        }
+        if(duration>0){long last=lastTimestamp(c.lrc);if(last>0){long diff=Math.abs(duration-last);if(diff<=25000)s+=10;else if(diff<=45000)s+=3;else if(diff>75000)s-=35;}}
         return s;
     }
 
     private double metaScore(String ct,String ca,long cd,String title,String artist,long duration){
-        double ts=similarity(cleanTitle(ct),cleanTitle(title));
-        double as=artistSimilarity(ca,artist);
-        if(ts<0.55)return 0;
-        if(!cleanArtist(artist).isEmpty()&&as<0.30)return 0;
+        double ts=similarity(cleanTitle(ct),cleanTitle(title)),as=artistSimilarity(ca,artist);
+        if(ts<0.55)return 0;if(!cleanArtist(artist).isEmpty()&&as<0.30)return 0;
         double s=ts*55+as*25;
-        if(duration>0&&cd>0){
-            long diff=Math.abs(duration-cd);
-            if(diff<=1800)s+=28;else if(diff<=4000)s+=22;else if(diff<=8000)s+=12;else if(diff<=15000)s+=3;else s-=45;
-        }else s+=6;
+        if(duration>0&&cd>0){long diff=Math.abs(duration-cd);if(diff<=1800)s+=28;else if(diff<=4000)s+=22;else if(diff<=8000)s+=12;else if(diff<=15000)s+=3;else s-=45;}else s+=6;
         return s;
     }
 
     private static List<String[]> queries(String title,String artist){
-        List<String[]> out=new ArrayList<>();
-        String full=nz(artist).trim(),first=firstArtist(full),clean=cleanTitle(title);
-        addQuery(out,title,full);
-        if(!first.equals(full))addQuery(out,title,first);
-        if(!norm(clean).equals(norm(title))){
-            addQuery(out,clean,full);
-            if(!first.equals(full))addQuery(out,clean,first);
-        }
-        return out;
+        List<String[]> out=new ArrayList<>();String full=nz(artist).trim(),first=firstArtist(full),clean=cleanTitle(title);
+        addQuery(out,title,full);if(!first.equals(full))addQuery(out,title,first);if(!norm(clean).equals(norm(title))){addQuery(out,clean,full);if(!first.equals(full))addQuery(out,clean,first);}return out;
     }
-
-    private static void addQuery(List<String[]> out,String t,String a){
-        String key=norm(t)+"|"+norm(a);
-        for(String[] q:out)if((norm(q[0])+"|"+norm(q[1])).equals(key))return;
-        out.add(new String[]{t,a});
-    }
-
+    private static void addQuery(List<String[]> out,String t,String a){String key=norm(t)+"|"+norm(a);for(String[] q:out)if((norm(q[0])+"|"+norm(q[1])).equals(key))return;out.add(new String[]{t,a});}
     private static String cleanTitle(String s){String x=nz(s);x=BRACKETS.matcher(x).replaceAll(" ");x=x.replaceAll("(?i)\\s*[-–—:]?\\s*(live|remaster(?:ed)?|version|ver\\.?|伴奏|纯音乐|翻唱|现场版|完整版|剪辑版|加速版|sped up|slowed).*?$","");return x.trim();}
     private static String cleanArtist(String s){return norm(firstArtist(s));}
     private static String firstArtist(String s){String x=nz(s).replaceAll("(?i)\\s+(feat\\.?|ft\\.?|featuring)\\s+.*$","");String[] p=x.split("[/／、,&，+]|\\s+x\\s+",2);return p.length==0?x.trim():p[0].trim();}
@@ -295,8 +252,8 @@ public final class MultiLyricsFetcher {
     private static boolean validLrc(String l){return timeLineCount(l)>=4;}
     private static int timeLineCount(String l){if(l==null)return 0;Matcher m=TS.matcher(l);int n=0;while(m.find()&&n<500)n++;return n;}
     private static long lastTimestamp(String l){if(l==null)return 0;Matcher m=TS.matcher(l);long last=0;while(m.find()){try{long t=Math.round((Long.parseLong(m.group(1))*60+Double.parseDouble(m.group(2)))*1000);if(t>last)last=t;}catch(Exception ignored){}}return last;}
-    private String get(String url,String referer)throws Exception{Request.Builder b=new Request.Builder().url(url).get().header("User-Agent","Mozilla/5.0 TeslaLyrics/1.2").header("Accept","application/json,text/plain,*/*");if(referer!=null)b.header("Referer",referer);try(Response r=http.newCall(b.build()).execute()){if(!r.isSuccessful())throw new Exception("HTTP "+r.code());return r.body()==null?"":r.body().string();}}
-    private String postJson(String url,String json,String referer)throws Exception{RequestBody body=RequestBody.create(json,MediaType.parse("application/json; charset=utf-8"));Request.Builder b=new Request.Builder().url(url).post(body).header("User-Agent","Mozilla/5.0 TeslaLyrics/1.2").header("Accept","application/json,text/plain,*/*");if(referer!=null)b.header("Referer",referer);try(Response r=http.newCall(b.build()).execute()){if(!r.isSuccessful())throw new Exception("HTTP "+r.code());return r.body()==null?"":r.body().string();}}
-    private static String enc(String s){return URLEncoder.encode(nz(s),StandardCharsets.UTF_8);}
+    private String get(String url,String referer)throws Exception{Request.Builder b=new Request.Builder().url(url).get().header("User-Agent","Mozilla/5.0 TeslaLyrics/1.3").header("Accept","application/json,text/plain,*/*");if(referer!=null)b.header("Referer",referer);try(Response r=http.newCall(b.build()).execute()){if(!r.isSuccessful())throw new Exception("HTTP "+r.code());return r.body()==null?"":r.body().string();}}
+    private String postJson(String url,String json,String referer)throws Exception{RequestBody body=RequestBody.create(json,MediaType.parse("application/json; charset=utf-8"));Request.Builder b=new Request.Builder().url(url).post(body).header("User-Agent","Mozilla/5.0 TeslaLyrics/1.3").header("Accept","application/json,text/plain,*/*");if(referer!=null)b.header("Referer",referer);try(Response r=http.newCall(b.build()).execute()){if(!r.isSuccessful())throw new Exception("HTTP "+r.code());return r.body()==null?"":r.body().string();}}
+    private static String enc(String s){try{return URLEncoder.encode(nz(s),"UTF-8");}catch(Exception e){return nz(s);}}
     private static String nz(String s){return s==null?"":s;}
 }
