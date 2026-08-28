@@ -39,7 +39,9 @@ public final class MediaSessionMonitor {
         @Override public void run(){
             if(!started)return;
             if(current==null)scan();else publish();
-            handler.postDelayed(this,5000);
+            // MediaController callbacks handle immediate track/playback changes. This is only a
+            // low-frequency safety scan, so 15 s is plenty and avoids unnecessary cache work.
+            handler.postDelayed(this,15000);
         }
     };
 
