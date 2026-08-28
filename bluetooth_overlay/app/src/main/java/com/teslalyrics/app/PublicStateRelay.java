@@ -43,7 +43,7 @@ public final class PublicStateRelay {
     public synchronized void publish(JSONObject f){
         try{
             if(endpoint.isEmpty())return;
-            String title=f.optString("MediaNowPlayingTitle,"").trim();
+            String title=f.optString("MediaNowPlayingTitle","").trim();
             if(title.isEmpty())return;
 
             String artist=f.optString("MediaNowPlayingArtist","");
