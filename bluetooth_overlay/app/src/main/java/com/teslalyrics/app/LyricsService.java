@@ -8,7 +8,9 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 
 public final class LyricsService extends Service implements AppState.Listener {
     public static final String ACTION_START="com.teslalyrics.START",ACTION_STOP="com.teslalyrics.STOP",ACTION_RESYNC="com.teslalyrics.RESYNC",ACTION_GLOBAL="com.teslalyrics.GLOBAL",ACTION_TRACK="com.teslalyrics.TRACK",ACTION_SCAN="com.teslalyrics.SCAN";
@@ -21,8 +23,9 @@ public final class LyricsService extends Service implements AppState.Listener {
     private TelemetryProcessor processor;
     private MediaSessionMonitor media;
     private RemoteControlBridge remote;
-    private long lastNotificationAt=0;
+    private final Handler main=new Handler(Looper.getMainLooper());
     private String lastNotificationTrack="";
+    private boolean foregroundStarted=false,uiPending=false,shutdown=false;
 
     @Override public void onCreate(){
         super.onCreate();
@@ -44,15 +47,17 @@ public final class LyricsService extends Service implements AppState.Listener {
         if(a==null)a=ACTION_START;
         if(ACTION_STOP.equals(a)){
             shutdown();
+            stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return START_NOT_STICKY;
         }
-        promote();
+        ensureForeground();
         state.setServiceRunning(true);
         media.start();
         remote.start();
         if(ACTION_RESYNC.equals(a)){
             PublicStateRelay.get().forceNext();
+            MultiLyricsFetcher.get().republishLatest();
             TrackMetadata t=state.trackCopy();
             if(!t.title.isEmpty())repo.load(t);
             media.scan();
@@ -71,28 +76,27 @@ public final class LyricsService extends Service implements AppState.Listener {
     }
 
     private void shutdown(){
+        if(shutdown)return;
+        shutdown=true;
+        main.removeCallbacks(uiBroadcast);
         if(remote!=null)remote.stop();
         if(media!=null)media.stop();
-        state.setServiceRunning(false);
-        state.removeListener(this);
+        if(state!=null){state.removeListener(this);state.setServiceRunning(false);}
     }
 
     @Override public void onDestroy(){shutdown();super.onDestroy();}
     @Override public IBinder onBind(Intent i){return null;}
 
     private void createChannel(){
-        if(Build.VERSION.SDK_INT>=26){
-            NotificationChannel c=new NotificationChannel("tesla_lyrics","Tesla Lyrics",NotificationManager.IMPORTANCE_LOW);
-            c.setDescription("保持播放器状态与 Tesla 歌词页面同步");
-            getSystemService(NotificationManager.class).createNotificationChannel(c);
-        }
+        NotificationChannel c=new NotificationChannel("tesla_lyrics","Tesla Lyrics",NotificationManager.IMPORTANCE_LOW);
+        c.setDescription("保持播放器状态与 Tesla 歌词页面同步");
+        getSystemService(NotificationManager.class).createNotificationChannel(c);
     }
 
     private Notification notification(){
         TrackMetadata t=state.trackCopy();
         String text=(t.title.isEmpty()?"等待手机播放器":t.title+" - "+t.artist)+"  hanz316.github.io/lyrics/";
-        Intent open=new Intent(this,MainActivity.class);
-        PendingIntent pi=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent pi=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this,"tesla_lyrics")
                 .setContentTitle("Tesla Lyrics 正在运行")
                 .setContentText(text)
@@ -103,20 +107,34 @@ public final class LyricsService extends Service implements AppState.Listener {
                 .build();
     }
 
-    private void promote(){
-        if(Build.VERSION.SDK_INT>=29)startForeground(7,notification(),ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
-        else startForeground(7,notification());
+    private void ensureForeground(){
+        if(foregroundStarted)return;
+        Notification n=notification();
+        if(Build.VERSION.SDK_INT>=29)startForeground(7,n,ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+        else startForeground(7,n);
+        foregroundStarted=true;
+    }
+
+    private void updateNotificationIfNeeded(){
+        if(!foregroundStarted)return;
+        TrackMetadata t=state.trackCopy();
+        String key=t.title+"\n"+t.artist;
+        if(key.equals(lastNotificationTrack))return;
+        lastNotificationTrack=key;
+        NotificationManager nm=getSystemService(NotificationManager.class);
+        if(nm!=null)nm.notify(7,notification());
     }
 
     @Override public void onStateChanged(){
-        TrackMetadata t=state.trackCopy();
-        String key=t.title+"\n"+t.artist;
-        long now=android.os.SystemClock.elapsedRealtime();
-        if(!key.equals(lastNotificationTrack)||now-lastNotificationAt>30000){
-            lastNotificationTrack=key;
-            lastNotificationAt=now;
-            promote();
+        updateNotificationIfNeeded();
+        if(!uiPending){
+            uiPending=true;
+            main.postDelayed(uiBroadcast,120);
         }
-        sendBroadcast(new Intent(ACTION_UI).setPackage(getPackageName()));
     }
+
+    private final Runnable uiBroadcast=()->{
+        uiPending=false;
+        sendBroadcast(new Intent(ACTION_UI).setPackage(getPackageName()));
+    };
 }
