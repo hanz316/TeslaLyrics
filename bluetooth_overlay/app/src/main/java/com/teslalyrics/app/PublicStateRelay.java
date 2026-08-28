@@ -17,6 +17,7 @@ public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
     public static PublicStateRelay get(){return I;}
     private static final String ENDPOINT="https://ntfy.sh/tlx-b3598dd35e2ab18ef1e2dc84";
+    private static final long HEARTBEAT_MS=4500;
     private final OkHttpClient client=new OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).build();
     private String lastFingerprint="";
     private long lastElapsed=0,lastMono=0;
@@ -42,7 +43,8 @@ public final class PublicStateRelay {
             long now=SystemClock.elapsedRealtime();
             String fp=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration+'\u0001'+status+'\u0001'+offset+'\u0001'+actions+'\u0001'+activeQueueId+'\u0001'+queueSig;
             long expected=lastElapsed+(lastPlaying&&lastMono>0?Math.max(0,now-lastMono):0);
-            boolean changed=!fp.equals(lastFingerprint)||lastMono==0||Math.abs(elapsed-expected)>1400;
+            boolean heartbeat=lastMono>0&&Math.max(0,now-lastMono)>=HEARTBEAT_MS;
+            boolean changed=!fp.equals(lastFingerprint)||lastMono==0||Math.abs(elapsed-expected)>1400||heartbeat;
             if(!changed||sending)return;
 
             JSONObject p=new JSONObject();
