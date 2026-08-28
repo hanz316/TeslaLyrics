@@ -25,6 +25,7 @@ import android.widget.Toast;
 
 public final class MainActivity extends Activity {
     private static final String TESLA_URL="https://hanz316.github.io/lyrics/";
+    private static final String PAIR_URL="https://hanz316.github.io/l/";
     private final AppState state=AppState.get();
     private LinearLayout content;
     private TextView homeStatus,diag,logs,permissionStatus,pairInfo;
@@ -32,7 +33,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle b){
         super.onCreate(b);
-        RelayConfig.token(this);
+        RelayConfig.pairCode(this);
         buildUi();
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},4);
@@ -93,19 +94,21 @@ public final class MainActivity extends Activity {
         r.addView(make("立即重新同步",()->send(LyricsService.ACTION_RESYNC)));
         content.addView(r);
 
-        content.addView(txt("车机安全配对",18,true));
-        pairInfo=txt("",18,true);content.addView(pairInfo);
-        rowButton("复制配对码",this::copyPairCode);
+        content.addView(txt("车机快速配对",18,true));
+        pairInfo=txt("",24,true);content.addView(pairInfo);
+        rowButton("复制 6 位配对码",this::copyPairCode);
+        content.addView(txt("首次配对页：\n"+PAIR_URL,15,false));
 
         content.addView(txt("使用方法",18,true));
         content.addView(txt(
                 "1. 手机连接 Tesla 蓝牙并播放音乐\n"+
                 "2. Tesla 音源选择 Bluetooth\n"+
                 "3. Tesla 连接手机热点\n"+
-                "4. Tesla 浏览器打开并收藏：\n"+TESLA_URL+"\n"+
-                "5. 第一次打开时，输入手机首页显示的 12 位配对码\n\n"+
-                "配对码只保存在你的手机和车机浏览器里。以后直接打开收藏网址即可，不需要再次输入。\n\n"+
-                "歌词延迟请直接在车机左下角齿轮里调整；车机会自己记住设置。\n\n"+
+                "4. 第一次配对：Tesla 浏览器打开 " + PAIR_URL + "\n"+
+                "5. 只输入手机首页显示的 6 位纯数字配对码\n"+
+                "6. 页面会自动跳转到歌词页，以后继续使用原来的收藏网址即可\n\n"+
+                "原歌词网址：\n"+TESLA_URL+"\n\n"+
+                "歌词延迟直接在车机左下角齿轮里调整。\n\n"+
                 "支持网易云音乐、Android Apple Music、QQ音乐、Spotify、YouTube Music。",15,false));
     }
 
@@ -121,8 +124,8 @@ public final class MainActivity extends Activity {
     private void copyPairCode(){
         String code=RelayConfig.pairCode(this);
         ClipboardManager cm=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-        if(cm!=null)cm.setPrimaryClip(ClipData.newPlainText("Tesla Lyrics 配对码",code));
-        Toast.makeText(this,"配对码已复制",Toast.LENGTH_SHORT).show();
+        if(cm!=null)cm.setPrimaryClip(ClipData.newPlainText("Tesla Lyrics 6 位配对码",code));
+        Toast.makeText(this,"6 位配对码已复制",Toast.LENGTH_SHORT).show();
     }
 
     private void openMediaAccess(){
@@ -155,7 +158,7 @@ public final class MainActivity extends Activity {
         if(permissionStatus!=null)permissionStatus.setText(
                 "通知使用权："+(access?"已开启":"未开启")+
                 (access?"\n已可读取手机播放器 MediaSession":"\n请开启，否则无法读取当前歌曲和进度"));
-        if(pairInfo!=null)pairInfo.setText("配对码：  "+RelayConfig.pairCode(this));
+        if(pairInfo!=null)pairInfo.setText("6 位配对码：  "+RelayConfig.pairCode(this));
         if(diag!=null)diag.setText(state.diagnostics());
         if(logs!=null)logs.setText(String.join("\n",state.log.snapshot()));
     }
