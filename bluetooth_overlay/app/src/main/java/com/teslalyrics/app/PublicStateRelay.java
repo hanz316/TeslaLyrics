@@ -20,9 +20,8 @@ public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
     public static PublicStateRelay get(){return I;}
 
-    private static final long HEARTBEAT_MS=30000;
-    private static final long MIN_429_BACKOFF_MS=60000;
-    private static final long MAX_429_BACKOFF_MS=300000;
+    private static final long SHORT_429_BACKOFF_MS=60000L;
+    private static final long DAY_MS=86400000L;
 
     private final OkHttpClient client=new OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
@@ -38,9 +37,6 @@ public final class PublicStateRelay {
     private boolean lastPlaying=false,sending=false,forceNext=false,successLogged=false;
 
     private long backoffUntilMono=0;
-    private int rateLimitStrikes=0;
-    private boolean backoffLogged=false;
-
     private String pendingLyricsKey="",pendingLyricsProvider="",pendingLyricsLrc="";
     private int pendingLyricsScore=0;
     private boolean pendingLyricsScheduled=false;
@@ -54,6 +50,7 @@ public final class PublicStateRelay {
         lastMono=0;
         forceNext=true;
         successLogged=false;
+        backoffUntilMono=0;
         if(recoveryFuture!=null){recoveryFuture.cancel(false);recoveryFuture=null;}
     }
 
@@ -63,23 +60,27 @@ public final class PublicStateRelay {
     }
 
     private synchronized boolean inBackoff(){
-        long now=SystemClock.elapsedRealtime();
-        if(now>=backoffUntilMono){
-            if(backoffUntilMono>0){backoffUntilMono=0;backoffLogged=false;}
-            return false;
-        }
-        if(!backoffLogged){
-            long left=Math.max(1,(backoffUntilMono-now+999)/1000);
-            AppState.get().log.add("Relay cooling down: "+left+"s");
-            backoffLogged=true;
-        }
-        return true;
+        return SystemClock.elapsedRealtime()<backoffUntilMono;
     }
 
     private long retryAfterMs(Response response){
         try{
             String v=response.header("Retry-After","").trim();
             if(!v.isEmpty())return Math.max(0,Long.parseLong(v))*1000L;
+        }catch(Exception ignored){}
+        return 0;
+    }
+
+    private static long untilNextUtcResetMs(){
+        long now=System.currentTimeMillis();
+        long next=((now/DAY_MS)+1L)*DAY_MS+8000L;
+        return Math.max(60000L,next-now);
+    }
+
+    private static int ntfyErrorCode(Response response){
+        try{
+            String body=response.peekBody(4096).string();
+            if(body!=null&&!body.isEmpty())return new JSONObject(body).optInt("code",0);
         }catch(Exception ignored){}
         return 0;
     }
@@ -101,19 +102,22 @@ public final class PublicStateRelay {
     private synchronized void enter429Backoff(Response response){
         sending=false;
         forceNext=true;
-        rateLimitStrikes=Math.min(4,rateLimitStrikes+1);
-        long exponential=MIN_429_BACKOFF_MS*(1L<<(rateLimitStrikes-1));
-        long delay=Math.min(MAX_429_BACKOFF_MS,Math.max(exponential,retryAfterMs(response)));
+        int code=ntfyErrorCode(response);
+        long delay;
+        if(code==42908){
+            // ntfy daily message quota. It resets at 00:00 UTC.
+            delay=untilNextUtcResetMs();
+            AppState.get().log.add("Relay daily quota reached; retry after UTC reset");
+        }else{
+            delay=Math.max(SHORT_429_BACKOFF_MS,retryAfterMs(response));
+            AppState.get().log.add("Relay HTTP 429; pause "+(delay/1000)+"s");
+        }
         backoffUntilMono=SystemClock.elapsedRealtime()+delay;
-        backoffLogged=true;
-        AppState.get().log.add("Relay HTTP 429; pause "+(delay/1000)+"s");
-        scheduleRecovery(delay+1200);
+        scheduleRecovery(delay+500);
     }
 
     private synchronized void markRelaySuccess(){
-        rateLimitStrikes=0;
         backoffUntilMono=0;
-        backoffLogged=false;
         if(recoveryFuture!=null){recoveryFuture.cancel(false);recoveryFuture=null;}
         if(!successLogged){
             successLogged=true;
@@ -146,10 +150,10 @@ public final class PublicStateRelay {
 
             String fp=lyricsTrackKey+'\u0001'+status+'\u0001'+offset;
             long expected=lastElapsed+(lastPlaying&&lastMono>0?Math.max(0,now-lastMono):0);
-            boolean drifted=lastMono>0&&Math.abs(elapsed-expected)>1400;
-            boolean structural=!fp.equals(lastFingerprint)||lastMono==0||drifted||forceNext;
-            boolean heartbeat=lastMono>0&&Math.max(0,now-lastMono)>=HEARTBEAT_MS;
-            if((!structural&&!heartbeat)||sending)return;
+            // Only a real seek / major timeline jump is network-worthy. Normal MediaSession jitter is ignored.
+            boolean seekJump=lastMono>0&&Math.abs(elapsed-expected)>5000;
+            boolean structural=!fp.equals(lastFingerprint)||lastMono==0||seekJump||forceNext;
+            if(!structural||sending)return;
 
             JSONObject p=new JSONObject();
             p.put("kind","state");
@@ -165,7 +169,6 @@ public final class PublicStateRelay {
             final String sentFp=fp;
             final long sentElapsed=elapsed,sentMono=now;
             final boolean sentPlaying=playing;
-            final boolean cacheThis=structural;
             forceNext=false;
             sending=true;
 
@@ -173,7 +176,7 @@ public final class PublicStateRelay {
             Request req=new Request.Builder()
                     .url(endpoint)
                     .post(body)
-                    .header("Cache",cacheThis?"yes":"no")
+                    .header("Cache","yes")
                     .header("Firebase","no")
                     .header("X-Tags","notes")
                     .build();
@@ -183,7 +186,7 @@ public final class PublicStateRelay {
                         sending=false;
                         forceNext=true;
                         backoffUntilMono=Math.max(backoffUntilMono,SystemClock.elapsedRealtime()+15000);
-                        scheduleRecovery(16200);
+                        scheduleRecovery(15500);
                     }
                     AppState.get().log.add("Public relay retry: "+e.getClass().getSimpleName());
                 }
@@ -201,7 +204,7 @@ public final class PublicStateRelay {
                             }else{
                                 forceNext=true;
                                 backoffUntilMono=Math.max(backoffUntilMono,SystemClock.elapsedRealtime()+15000);
-                                scheduleRecovery(16200);
+                                scheduleRecovery(15500);
                             }
                         }
                         if(response.isSuccessful())schedulePendingLyrics();
@@ -224,7 +227,8 @@ public final class PublicStateRelay {
             pendingLyricsScore=score;
             if(endpoint.isEmpty()||inBackoff())return;
         }
-        sendPendingLyricsNow();
+        // Do not race the state publish. Let the state establish the current track first.
+        schedulePendingLyrics();
     }
 
     private void schedulePendingLyrics(){
