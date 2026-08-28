@@ -4,6 +4,8 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -16,34 +18,140 @@ import android.provider.Settings;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
-import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final String TESLA_URL="https://hanz316.github.io/lyrics/";
-    private final AppState state=AppState.get();private SettingsStore settings;private LinearLayout content;private TextView homeStatus,diag,logs,globalLabel,trackLabel,permissionStatus;
+    private final AppState state=AppState.get();
+    private LinearLayout content;
+    private TextView homeStatus,diag,logs,permissionStatus,pairInfo;
     private final BroadcastReceiver rx=new BroadcastReceiver(){public void onReceive(Context c,Intent i){refresh();}};
-    @Override public void onCreate(Bundle b){super.onCreate(b);settings=new SettingsStore(this);buildUi();if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},4);startCore();}
-    @Override protected void onStart(){super.onStart();IntentFilter f=new IntentFilter(LyricsService.ACTION_UI);if(Build.VERSION.SDK_INT>=33)registerReceiver(rx,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(rx,f);refresh();}
-    @Override protected void onResume(){super.onResume();if(hasMediaAccess())send(LyricsService.ACTION_SCAN);refresh();}
+
+    @Override public void onCreate(Bundle b){
+        super.onCreate(b);
+        // Generate once locally. It is used as an unguessable ntfy topic suffix and never committed to GitHub.
+        RelayConfig.token(this);
+        buildUi();
+        if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},4);
+        startCore();
+    }
+
+    @Override protected void onStart(){
+        super.onStart();
+        IntentFilter f=new IntentFilter(LyricsService.ACTION_UI);
+        if(Build.VERSION.SDK_INT>=33)registerReceiver(rx,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(rx,f);
+        refresh();
+    }
+
+    @Override protected void onResume(){
+        super.onResume();
+        if(hasMediaAccess())send(LyricsService.ACTION_SCAN);
+        refresh();
+    }
+
     @Override protected void onStop(){try{unregisterReceiver(rx);}catch(Exception ignored){}super.onStop();}
-    private void buildUi(){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(24,20,24,20);root.setBackgroundColor(Color.rgb(15,15,17));root.addView(txt("TESLA LYRICS",24,true));LinearLayout tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);tabs.addView(tab("首页",0));tabs.addView(tab("歌词校准",1));tabs.addView(tab("诊断",2));root.addView(tabs);ScrollView sv=new ScrollView(this);content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);sv.addView(content);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);showPage(0);}
+
+    private void buildUi(){
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(24,20,24,20);
+        root.setBackgroundColor(Color.rgb(15,15,17));
+        root.addView(txt("TESLA LYRICS",24,true));
+        LinearLayout tabs=new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.addView(tab("首页",0));
+        tabs.addView(tab("诊断",1));
+        root.addView(tabs);
+        ScrollView sv=new ScrollView(this);
+        content=new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(content);
+        root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+        setContentView(root);
+        showPage(0);
+    }
+
     private Button tab(String s,int p){Button b=button(s);b.setOnClickListener(v->showPage(p));return b;}
-    private void showPage(int p){content.removeAllViews();if(p==0)home();else if(p==1)calibration();else diagnosticsPage();refresh();}
-    private void home(){homeStatus=txt("",18,false);content.addView(homeStatus);permissionStatus=txt("",15,false);content.addView(permissionStatus);rowButton("开启通知使用权（只用于读取播放器）",this::openMediaAccess);LinearLayout r=row();r.addView(make("启动服务",this::startCore));r.addView(make("重新扫描播放器",()->send(LyricsService.ACTION_SCAN)));r.addView(make("立即重新同步",()->send(LyricsService.ACTION_RESYNC)));content.addView(r);content.addView(txt("使用方法",18,true));content.addView(txt("1. 手机连接 Tesla 蓝牙\n2. 手机打开网易云音乐并播放\n3. Tesla 音源选择 Bluetooth\n4. Tesla 连接手机热点\n5. Tesla 浏览器打开并收藏：\n"+TESLA_URL+"\n\n车机页面走公网 HTTPS，不再访问手机局域网 IP，因此热点 IP 变化也不会影响收藏地址。\n\n支持网易云音乐、Android Apple Music、QQ音乐、Spotify、YouTube Music。",15,false));}
-    private void calibration(){globalLabel=txt("",20,true);trackLabel=txt("",20,true);content.addView(globalLabel);offsetButtons(true);content.addView(seek(true));content.addView(trackLabel);offsetButtons(false);content.addView(seek(false));content.addView(txt("+ = 歌词更早出现；- = 歌词更晚出现。修改会同步到车机页面。",14,false));}
-    private void offsetButtons(boolean global){LinearLayout r=row();for(double d:new double[]{-1,-0.5,0,0.5,1}){String s=d==0?"归零":String.format(Locale.US,"%+.1fs",d);r.addView(make(s,()->{long cur=global?state.globalOffsetMs():state.trackOffsetMs();long v=d==0?0:cur+Math.round(d*1000);sendOffset(global,v);}));}content.addView(r);}
-    private SeekBar seek(boolean global){SeekBar s=new SeekBar(this);s.setMax(600);long v=global?state.globalOffsetMs():state.trackOffsetMs();s.setProgress((int)(v/100)+300);s.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar b,int p,boolean from){if(from)sendOffset(global,(p-300)*100L);}public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}});return s;}
-    private void diagnosticsPage(){rowButton("清空歌词缓存",()->{new LyricsDb(this).clearAll();Toast.makeText(this,"缓存已清空",Toast.LENGTH_SHORT).show();});rowButton("停止服务",()->send(LyricsService.ACTION_STOP));diag=txt("",15,false);logs=txt("",13,false);content.addView(txt("诊断",18,true));content.addView(diag);content.addView(txt("最近事件",18,true));content.addView(logs);}
-    private void openMediaAccess(){try{startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));}catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}}
-    private boolean hasMediaAccess(){ComponentName c=new ComponentName(this,MediaAccessService.class);if(Build.VERSION.SDK_INT>=27){NotificationManager nm=getSystemService(NotificationManager.class);return nm!=null&&nm.isNotificationListenerAccessGranted(c);}String enabled=Settings.Secure.getString(getContentResolver(),"enabled_notification_listeners");return enabled!=null&&enabled.contains(getPackageName());}
+    private void showPage(int p){content.removeAllViews();if(p==0)home();else diagnosticsPage();refresh();}
+
+    private void home(){
+        homeStatus=txt("",18,false);content.addView(homeStatus);
+        permissionStatus=txt("",15,false);content.addView(permissionStatus);
+        rowButton("开启通知使用权（只用于读取播放器）",this::openMediaAccess);
+        LinearLayout r=row();
+        r.addView(make("启动服务",this::startCore));
+        r.addView(make("重新扫描播放器",()->send(LyricsService.ACTION_SCAN)));
+        r.addView(make("立即重新同步",()->send(LyricsService.ACTION_RESYNC)));
+        content.addView(r);
+
+        content.addView(txt("车机安全配对",18,true));
+        pairInfo=txt("",18,true);content.addView(pairInfo);
+        rowButton("复制配对码",this::copyPairCode);
+
+        content.addView(txt("使用方法",18,true));
+        content.addView(txt(
+                "1. 手机连接 Tesla 蓝牙并播放音乐\n"+
+                "2. Tesla 音源选择 Bluetooth\n"+
+                "3. Tesla 连接手机热点\n"+
+                "4. Tesla 浏览器打开并收藏：\n"+TESLA_URL+"\n"+
+                "5. 第一次打开时，输入手机首页显示的 12 位配对码\n\n"+
+                "配对码只保存在你的手机和车机浏览器里。以后直接打开收藏网址即可，不需要再次输入。\n\n"+
+                "歌词延迟请直接在车机左下角齿轮里调整；车机会自己记住设置。\n\n"+
+                "支持网易云音乐、Android Apple Music、QQ音乐、Spotify、YouTube Music。",15,false));
+    }
+
+    private void diagnosticsPage(){
+        rowButton("清空歌词缓存",()->{new LyricsDb(this).clearAll();Toast.makeText(this,"缓存已清空",Toast.LENGTH_SHORT).show();});
+        rowButton("立即重新同步",()->send(LyricsService.ACTION_RESYNC));
+        rowButton("停止服务",()->send(LyricsService.ACTION_STOP));
+        diag=txt("",15,false);logs=txt("",13,false);
+        content.addView(txt("诊断",18,true));content.addView(diag);
+        content.addView(txt("最近事件",18,true));content.addView(logs);
+    }
+
+    private void copyPairCode(){
+        String code=RelayConfig.pairCode(this);
+        ClipboardManager cm=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+        if(cm!=null)cm.setPrimaryClip(ClipData.newPlainText("Tesla Lyrics 配对码",code));
+        Toast.makeText(this,"配对码已复制",Toast.LENGTH_SHORT).show();
+    }
+
+    private void openMediaAccess(){
+        try{startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));}
+        catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}
+    }
+
+    private boolean hasMediaAccess(){
+        ComponentName c=new ComponentName(this,MediaAccessService.class);
+        if(Build.VERSION.SDK_INT>=27){
+            NotificationManager nm=getSystemService(NotificationManager.class);
+            return nm!=null&&nm.isNotificationListenerAccessGranted(c);
+        }
+        String enabled=Settings.Secure.getString(getContentResolver(),"enabled_notification_listeners");
+        return enabled!=null&&enabled.contains(getPackageName());
+    }
+
     private void startCore(){send(LyricsService.ACTION_START);}
     private void send(String a){Intent i=new Intent(this,LyricsService.class).setAction(a);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
-    private void sendOffset(boolean g,long ms){Intent i=new Intent(this,LyricsService.class).setAction(g?LyricsService.ACTION_GLOBAL:LyricsService.ACTION_TRACK).putExtra("ms",ms);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);refresh();}
-    private void refresh(){TrackMetadata t=state.trackCopy();boolean access=hasMediaAccess();if(homeStatus!=null)homeStatus.setText("服务："+state.diagnostics().split("\\n")[0].replace("Service: ","")+"\n播放器："+(state.mediaConnected()?MediaSessionMonitor.friendlyName(state.playerPackage()):"等待连接")+"\n\n当前：\n"+(t.title.isEmpty()?"等待网易云音乐播放":t.title)+"\n"+t.artist+"\n\n歌词同步偏移："+fmt(state.effectiveOffsetMs())+"\n\n固定车机网址：\n"+TESLA_URL+"\n\n状态会通过免费公网通道自动同步；无需输入热点 IP。");if(permissionStatus!=null)permissionStatus.setText("通知使用权："+(access?"已开启":"未开启")+(access?"\n已可读取手机播放器 MediaSession":"\n请开启，否则无法读取网易云的歌名和进度"));if(globalLabel!=null)globalLabel.setText("Global Offset  "+fmt(state.globalOffsetMs()));if(trackLabel!=null)trackLabel.setText("Track Offset  "+fmt(state.trackOffsetMs()));if(diag!=null)diag.setText(state.diagnostics());if(logs!=null)logs.setText(String.join("\n",state.log.snapshot()));}
-    private String fmt(long ms){return String.format(Locale.US,"%+.1f 秒",ms/1000.0);}
+
+    private void refresh(){
+        TrackMetadata t=state.trackCopy();
+        boolean access=hasMediaAccess();
+        if(homeStatus!=null)homeStatus.setText(
+                "服务："+state.diagnostics().split("\\n")[0].replace("Service: ","")+"\n"+
+                "播放器："+(state.mediaConnected()?MediaSessionMonitor.friendlyName(state.playerPackage()):"等待连接")+"\n\n"+
+                "当前：\n"+(t.title.isEmpty()?"等待手机播放器播放":t.title)+"\n"+t.artist+"\n\n"+
+                "固定车机网址：\n"+TESLA_URL);
+        if(permissionStatus!=null)permissionStatus.setText(
+                "通知使用权："+(access?"已开启":"未开启")+
+                (access?"\n已可读取手机播放器 MediaSession":"\n请开启，否则无法读取当前歌曲和进度"));
+        if(pairInfo!=null)pairInfo.setText("配对码：  "+RelayConfig.pairCode(this));
+        if(diag!=null)diag.setText(state.diagnostics());
+        if(logs!=null)logs.setText(String.join("\n",state.log.snapshot()));
+    }
+
     private void rowButton(String s,Runnable r){content.addView(make(s,r));}
     private Button make(String s,Runnable r){Button b=button(s);b.setOnClickListener(v->r.run());return b;}
     private Button button(String s){Button b=new Button(this);b.setText(s);b.setTextSize(14);return b;}
