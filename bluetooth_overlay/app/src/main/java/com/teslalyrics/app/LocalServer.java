@@ -103,7 +103,7 @@ public final class LocalServer {
             if(request==null||request.isEmpty())return;
             String[] first=request.split(" ");
             String method=first.length>0?first[0]:"";
-            String path=first.length>1?first[1]:"/";
+            String path=first.length>1?first[1].split("\\?",2)[0]:"/";
             String wsKey="";
             boolean upgrade=false;
             String line;
@@ -137,8 +137,6 @@ public final class LocalServer {
                 o.put("client",remote);
                 o.put("requests",requestCount.get());
                 write(s,200,"application/json; charset=utf-8",o.toString());
-            }else if("/lyrics".equals(path)){
-                write(s,200,"application/json; charset=utf-8",MultiLyricsFetcher.get().latestJson().toString());
             }else{
                 write(s,200,"text/html; charset=utf-8",probePage(remote));
             }
