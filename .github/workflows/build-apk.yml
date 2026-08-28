@@ -59,7 +59,17 @@ jobs:
 
       - name: Android lint
         working-directory: project
-        run: gradle --no-daemon lintDebug
+        shell: bash
+        run: |
+          set +e
+          gradle --no-daemon lintDebug
+          code=$?
+          report="app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt"
+          if [ -f "$report" ]; then
+            echo "===== FULL ANDROID LINT REPORT ====="
+            cat "$report"
+          fi
+          exit $code
 
       - name: Build debug APK
         working-directory: project
