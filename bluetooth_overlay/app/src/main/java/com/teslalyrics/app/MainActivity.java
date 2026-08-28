@@ -92,14 +92,15 @@ public final class MainActivity extends Activity {
         content.addView(txt("局域网直连验证",18,true));
         lanStatus=txt("",15,false);content.addView(lanStatus);
         content.addView(txt(
-                "测试步骤：\n"+
+                "优先测试【域名地址】。它把手机热点私有 IP 包装成普通域名，Tesla 不需要直接输入纯数字 IP。\n\n"+
+                "测试顺序：\n"+
                 "1. 打开手机热点\n"+
                 "2. 让 Tesla 连接这个热点\n"+
-                "3. 在 Tesla 浏览器打开上面显示的 8765 地址\n"+
-                "4. 如果 8765 不通，再测试 8080 地址\n\n"+
-                "成功页面会显示：TESLA LOCAL LINK OK\n"+
-                "并继续自动测试 WebSocket。\n\n"+
-                "如果 HTTP 和 WebSocket 都成功，就证明热点局域网可以直接作为最终通信层，后续不需要 ntfy。",15,false));
+                "3. 在 Tesla 浏览器打开 nip.io 域名地址\n"+
+                "4. 不通再试 sslip.io 域名地址\n"+
+                "5. 最后才测试纯数字 IP\n\n"+
+                "这些域名只是 DNS 映射：浏览器最终仍直接连接手机局域网地址，网页流量不会经过 nip.io/sslip.io 服务器。\n\n"+
+                "成功页面会显示：TESLA LOCAL LINK OK，并继续自动测试 WebSocket。",15,false));
     }
 
     private void diagnosticsPage(){
@@ -129,10 +130,16 @@ public final class MainActivity extends Activity {
     private void startCore(){send(LyricsService.ACTION_START);}
     private void send(String a){startForegroundService(new Intent(this,LyricsService.class).setAction(a));}
 
+    private static String hostnameAlias(String ip,String domain,int port){
+        if(ip==null||ip.isEmpty()||"0.0.0.0".equals(ip))return "等待热点地址";
+        return "http://"+ip.replace('.', '-')+"."+domain+":"+port+"/";
+    }
+
     @SuppressLint("SetTextI18n")
     private void refresh(){
         TrackMetadata t=state.trackCopy();
         boolean access=hasMediaAccess();
+        String ip=NetworkUtils.bestLanAddress();
         if(homeStatus!=null)homeStatus.setText(
                 "服务："+state.diagnostics().split("\\n")[0].replace("Service: ","")+"\n"+
                 "播放器："+(state.mediaConnected()?MediaSessionMonitor.friendlyName(state.playerPackage()):"等待连接")+"\n\n"+
@@ -141,8 +148,15 @@ public final class MainActivity extends Activity {
                 "通知使用权："+(access?"已开启":"未开启")+
                 (access?"\n已可读取手机播放器 MediaSession":"\n请开启，否则无法读取当前歌曲和进度"));
         if(lanStatus!=null)lanStatus.setText(
-                LocalServer.statusReport()+"\n\n检测到的局域网地址：\n"+NetworkUtils.candidateReport()+
-                "\n\n8080 备用：\nhttp://"+NetworkUtils.bestLanAddress()+":8080/");
+                LocalServer.statusReport()+
+                "\n\n【优先：普通域名，不是纯数字 IP】\n"+
+                hostnameAlias(ip,"nip.io",8765)+"\n"+
+                hostnameAlias(ip,"sslip.io",8765)+
+                "\n\n【8080 备用域名】\n"+
+                hostnameAlias(ip,"nip.io",8080)+"\n"+
+                hostnameAlias(ip,"sslip.io",8080)+
+                "\n\n【最后测试：纯数字地址】\nhttp://"+ip+":8765/\nhttp://"+ip+":8080/"+
+                "\n\n检测到的局域网接口：\n"+NetworkUtils.candidateReport());
         if(diag!=null)diag.setText(state.diagnostics()+"\n\n"+LocalServer.statusReport()+"\n\nInterfaces:\n"+NetworkUtils.candidateReport());
         if(logs!=null)logs.setText(String.join("\n",state.log.snapshot()));
     }
