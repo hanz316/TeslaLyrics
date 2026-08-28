@@ -1,6 +1,7 @@
 package com.teslalyrics.app;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -12,6 +13,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -30,7 +32,6 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle b){
         super.onCreate(b);
-        // Generate once locally. It is used as an unguessable ntfy topic suffix and never committed to GitHub.
         RelayConfig.token(this);
         buildUi();
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
@@ -40,9 +41,15 @@ public final class MainActivity extends Activity {
 
     @Override protected void onStart(){
         super.onStart();
-        IntentFilter f=new IntentFilter(LyricsService.ACTION_UI);
-        if(Build.VERSION.SDK_INT>=33)registerReceiver(rx,f,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(rx,f);
+        registerUiReceiver();
         refresh();
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerUiReceiver(){
+        IntentFilter f=new IntentFilter(LyricsService.ACTION_UI);
+        if(Build.VERSION.SDK_INT>=33)registerReceiver(rx,f,Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(rx,f);
     }
 
     @Override protected void onResume(){
@@ -134,8 +141,9 @@ public final class MainActivity extends Activity {
     }
 
     private void startCore(){send(LyricsService.ACTION_START);}
-    private void send(String a){Intent i=new Intent(this,LyricsService.class).setAction(a);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
+    private void send(String a){startForegroundService(new Intent(this,LyricsService.class).setAction(a));}
 
+    @SuppressLint("SetTextI18n")
     private void refresh(){
         TrackMetadata t=state.trackCopy();
         boolean access=hasMediaAccess();
@@ -156,5 +164,5 @@ public final class MainActivity extends Activity {
     private Button make(String s,Runnable r){Button b=button(s);b.setOnClickListener(v->r.run());return b;}
     private Button button(String s){Button b=new Button(this);b.setText(s);b.setTextSize(14);return b;}
     private LinearLayout row(){LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);return r;}
-    private TextView txt(String s,int sp,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextColor(Color.WHITE);t.setTextSize(sp);t.setPadding(0,10,0,10);if(bold)t.setTypeface(null,1);return t;}
+    private TextView txt(String s,int sp,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextColor(Color.WHITE);t.setTextSize(sp);t.setPadding(0,10,0,10);if(bold)t.setTypeface(null,Typeface.BOLD);return t;}
 }
