@@ -35,7 +35,6 @@ public final class MediaSessionMonitor {
         @Override public void onPlaybackStateChanged(PlaybackState s){publish();}
         @Override public void onSessionDestroyed(){handler.postDelayed(MediaSessionMonitor.this::scan,150);}
     };
-    // Five seconds is only a safety net for players that fail to send callbacks.
     private final Runnable ticker=new Runnable(){
         @Override public void run(){
             if(!started)return;
@@ -104,7 +103,7 @@ public final class MediaSessionMonitor {
     private int score(MediaController c){
         int s=0;
         PlaybackState ps=c.getPlaybackState();
-        if(ps!=null&&isActivelyPlaying(ps.getState()))s+=3000; // real playback always wins over a stale preferred session
+        if(ps!=null&&isActivelyPlaying(ps.getState()))s+=3000;
         String pkg=c.getPackageName()==null?"":c.getPackageName();
         int p=PREFERRED.indexOf(pkg);
         if(p>=0)s+=1000-p*20;
@@ -177,7 +176,6 @@ public final class MediaSessionMonitor {
                     if(playing)tc.pause();else tc.play();
                 }else if("resync".equals(action)){
                     PublicStateRelay.get().forceNext();
-                    MultiLyricsFetcher.get().republishLatest();
                     publish();
                     return;
                 }
