@@ -23,6 +23,7 @@ public final class LyricsService extends Service implements AppState.Listener {
     private TelemetryProcessor processor;
     private MediaSessionMonitor media;
     private LocalServer local;
+    private Ipv6ProbeServer ipv6;
     private final Handler main=new Handler(Looper.getMainLooper());
     private String lastNotificationTrack="";
     private boolean foregroundStarted=false,uiPending=false,shutdown=false;
@@ -37,6 +38,7 @@ public final class LyricsService extends Service implements AppState.Listener {
         PublicStateRelay.get().configure(this);
         media=new MediaSessionMonitor(this,processor);
         local=new LocalServer(this);
+        ipv6=new Ipv6ProbeServer();
         state.setGlobalOffsetMs(settings.globalOffset());
         state.addListener(this);
         createChannel();
@@ -54,6 +56,7 @@ public final class LyricsService extends Service implements AppState.Listener {
         ensureForeground();
         state.setServiceRunning(true);
         if(local!=null)local.start();
+        if(ipv6!=null)ipv6.start();
         media.start();
         if(ACTION_RESYNC.equals(a)){
             TrackMetadata t=state.trackCopy();
@@ -77,6 +80,7 @@ public final class LyricsService extends Service implements AppState.Listener {
         if(shutdown)return;
         shutdown=true;
         main.removeCallbacks(uiBroadcast);
+        if(ipv6!=null)ipv6.stop();
         if(local!=null)local.stop();
         if(media!=null)media.stop();
         if(state!=null){state.removeListener(this);state.setServiceRunning(false);}
@@ -117,7 +121,7 @@ public final class LyricsService extends Service implements AppState.Listener {
     private void updateNotificationIfNeeded(){
         if(!foregroundStarted)return;
         TrackMetadata t=state.trackCopy();
-        String key=t.title+"\n"+t.artist+"\n"+NetworkUtils.bestLanAddress();
+        String key=t.title+"\n"+t.artist+"\n"+NetworkUtils.bestLanAddress()+"\n"+NetworkUtils.bestGlobalV6Address();
         if(key.equals(lastNotificationTrack))return;
         lastNotificationTrack=key;
         NotificationManager nm=getSystemService(NotificationManager.class);
