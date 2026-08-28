@@ -1,7 +1,7 @@
 package com.teslalyrics.app;
 
+import android.content.Context;
 import android.os.SystemClock;
-import org.json.JSONArray;
 import org.json.JSONObject;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -16,64 +16,124 @@ import java.util.concurrent.TimeUnit;
 public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
     public static PublicStateRelay get(){return I;}
-    private static final String ENDPOINT="https://ntfy.sh/tlx-b3598dd35e2ab18ef1e2dc84";
-    private static final long HEARTBEAT_MS=4500;
-    private final OkHttpClient client=new OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).build();
+
+    // Track changes / pause / seek are sent immediately. Heartbeats are deliberately
+    // much slower so the anonymous ntfy rate bucket is never ridden at its limit.
+    private static final long HEARTBEAT_MS=15000;
+    private final OkHttpClient client=new OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build();
+
+    private String endpoint="";
     private String lastFingerprint="";
     private long lastElapsed=0,lastMono=0;
-    private boolean lastPlaying=false,sending=false;
+    private boolean lastPlaying=false,sending=false,forceNext=false;
+
+    public synchronized void configure(Context context){
+        endpoint="https://ntfy.sh/"+RelayConfig.stateTopic(context);
+    }
+
+    /** Force the next state publication, used when a newly opened car page asks for resync. */
+    public synchronized void forceNext(){forceNext=true;}
 
     public synchronized void publish(JSONObject f){
         try{
-            String title=f.optString("MediaNowPlayingTitle","");
+            if(endpoint.isEmpty())return;
+            String title=f.optString("MediaNowPlayingTitle","").trim();
             if(title.isEmpty())return;
             MultiLyricsFetcher.get().ensure(f);
+
             String artist=f.optString("MediaNowPlayingArtist","");
             String album=f.optString("MediaNowPlayingAlbum","");
             String source=f.optString("MediaPlaybackSource","");
             String status=f.optString("MediaPlaybackStatus","Paused");
             long duration=Math.max(0,f.optLong("MediaNowPlayingDuration",0));
             long elapsed=Math.max(0,f.optLong("MediaNowPlayingElapsed",0));
-            long actions=f.optLong("MediaActions",0);
-            long activeQueueId=f.optLong("MediaActiveQueueId",-1);
-            JSONArray queue=f.optJSONArray("MediaQueue");
-            String queueSig=queue==null?"":queue.toString();
             boolean playing="Playing".equalsIgnoreCase(status);
-            long offset=AppState.get().effectiveOffsetMs();
             long now=SystemClock.elapsedRealtime();
-            String fp=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration+'\u0001'+status+'\u0001'+offset+'\u0001'+actions+'\u0001'+activeQueueId+'\u0001'+queueSig;
+            long offset=AppState.get().effectiveOffsetMs();
+
+            String fp=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration+'\u0001'+status+'\u0001'+offset;
             long expected=lastElapsed+(lastPlaying&&lastMono>0?Math.max(0,now-lastMono):0);
+            boolean drifted=lastMono>0&&Math.abs(elapsed-expected)>1400;
+            boolean structural=!fp.equals(lastFingerprint)||lastMono==0||drifted||forceNext;
             boolean heartbeat=lastMono>0&&Math.max(0,now-lastMono)>=HEARTBEAT_MS;
-            boolean changed=!fp.equals(lastFingerprint)||lastMono==0||Math.abs(elapsed-expected)>1400||heartbeat;
-            if(!changed||sending)return;
+            if((!structural&&!heartbeat)||sending)return;
 
             JSONObject p=new JSONObject();
             p.put("kind","state");
-            p.put("title",title);p.put("artist",artist);p.put("album",album);p.put("source",source);
-            p.put("duration",duration);p.put("elapsed",elapsed);p.put("playing",playing);p.put("offset",offset);
-            p.put("actions",actions);p.put("activeQueueId",activeQueueId);
-            if(queue!=null&&queue.length()>0)p.put("queue",queue);
-            final String sentFp=fp;final long sentElapsed=elapsed;final long sentMono=now;final boolean sentPlaying=playing;
+            p.put("title",title);
+            p.put("artist",artist);
+            p.put("album",album);
+            p.put("source",source);
+            p.put("duration",duration);
+            p.put("elapsed",elapsed);
+            p.put("playing",playing);
+            p.put("sentAtMs",System.currentTimeMillis());
+
+            final String sentFp=fp;
+            final long sentElapsed=elapsed,sentMono=now;
+            final boolean sentPlaying=playing;
+            final boolean cacheThis=structural;
+            forceNext=false;
             sending=true;
+
             RequestBody body=RequestBody.create(p.toString(),MediaType.parse("text/plain; charset=utf-8"));
-            Request req=new Request.Builder().url(ENDPOINT).post(body).header("Cache","yes").header("X-Tags","notes").build();
+            Request req=new Request.Builder()
+                    .url(endpoint)
+                    .post(body)
+                    // Heartbeats are live-only. State changes remain cached so a fresh page can recover instantly.
+                    .header("Cache",cacheThis?"yes":"no")
+                    .header("X-Tags","notes")
+                    .build();
             client.newCall(req).enqueue(new Callback(){
-                @Override public void onFailure(Call call, IOException e){synchronized(PublicStateRelay.this){sending=false;}AppState.get().log.add("Public relay retry: "+e.getClass().getSimpleName());}
-                @Override public void onResponse(Call call, Response response){try{if(response.isSuccessful()){synchronized(PublicStateRelay.this){lastFingerprint=sentFp;lastElapsed=sentElapsed;lastMono=sentMono;lastPlaying=sentPlaying;sending=false;}AppState.get().log.add("Public relay synced");}else{synchronized(PublicStateRelay.this){sending=false;}AppState.get().log.add("Public relay HTTP "+response.code());}}finally{response.close();}}
+                @Override public void onFailure(Call call, IOException e){
+                    synchronized(PublicStateRelay.this){sending=false;forceNext=true;}
+                    AppState.get().log.add("Public relay retry: "+e.getClass().getSimpleName());
+                }
+                @Override public void onResponse(Call call, Response response){
+                    try{
+                        synchronized(PublicStateRelay.this){
+                            sending=false;
+                            if(response.isSuccessful()){
+                                lastFingerprint=sentFp;
+                                lastElapsed=sentElapsed;
+                                lastMono=sentMono;
+                                lastPlaying=sentPlaying;
+                            }else forceNext=true;
+                        }
+                        if(!response.isSuccessful())AppState.get().log.add("Public relay HTTP "+response.code());
+                    }finally{response.close();}
+                }
             });
-        }catch(Exception e){sending=false;AppState.get().log.add("Public relay error: "+e.getClass().getSimpleName());}
+        }catch(Exception e){
+            sending=false;forceNext=true;
+            AppState.get().log.add("Public relay error: "+e.getClass().getSimpleName());
+        }
     }
 
     public void publishLyrics(String key,String provider,String lrc,int score){
         try{
+            String ep;
+            synchronized(this){ep=endpoint;}
+            if(ep.isEmpty())return;
             JSONObject p=new JSONObject();
-            p.put("kind","lyrics");p.put("key",key);p.put("provider",provider);p.put("score",score);p.put("lrc",lrc);
+            p.put("kind","lyrics");
+            p.put("key",key);
+            p.put("provider",provider);
+            p.put("score",score);
+            p.put("lrc",lrc);
             String filename="tlx-lyrics-"+Integer.toHexString(key.hashCode())+".json";
             RequestBody body=RequestBody.create(p.toString(),MediaType.parse("application/json; charset=utf-8"));
-            Request req=new Request.Builder().url(ENDPOINT).put(body).header("Filename",filename).header("Cache","yes").build();
+            Request req=new Request.Builder().url(ep).put(body).header("Filename",filename).header("Cache","yes").build();
             client.newCall(req).enqueue(new Callback(){
                 @Override public void onFailure(Call call,IOException e){AppState.get().log.add("Lyrics relay retry: "+e.getClass().getSimpleName());}
-                @Override public void onResponse(Call call,Response response){try{AppState.get().log.add(response.isSuccessful()?"Lyrics relay uploaded: "+provider:"Lyrics relay HTTP "+response.code());}finally{response.close();}}
+                @Override public void onResponse(Call call,Response response){
+                    try{if(!response.isSuccessful())AppState.get().log.add("Lyrics relay HTTP "+response.code());}
+                    finally{response.close();}
+                }
             });
         }catch(Exception e){AppState.get().log.add("Lyrics relay error: "+e.getClass().getSimpleName());}
     }
