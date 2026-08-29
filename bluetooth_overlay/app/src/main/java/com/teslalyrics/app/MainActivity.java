@@ -25,7 +25,7 @@ import android.widget.Toast;
 
 public final class MainActivity extends Activity {
     private static final String TESLA_URL="https://hanz316.github.io/rtcapp/car.html";
-    private static final String BUILD_MARKER="CONTROL10";
+    private static final String BUILD_MARKER="CONTROL11";
     private final AppState state=AppState.get();
     private LinearLayout content;
     private TextView homeStatus,rtcStatus,diag,logs,permissionStatus,controlStatus;
@@ -75,7 +75,7 @@ public final class MainActivity extends Activity {
         rowButton("刷新诊断",this::refresh);
         rowButton("复制全部诊断",this::copyDiagnostics);
         rowButton("重新连接 CMAPI / UCar",()->{NeteaseControlLab.reconnect(this);Toast.makeText(this,"正在重新连接",Toast.LENGTH_SHORT).show();});
-        rowButton("精确扫描控制路线",()->{NeteaseRoute10Inspector.scanAsync(this);Toast.makeText(this,"正在精确扫描",Toast.LENGTH_SHORT).show();});
+        rowButton("反向扫描随心唱控制入口",()->{NeteaseXCall11Inspector.scanAsync(this);Toast.makeText(this,"正在反向扫描",Toast.LENGTH_SHORT).show();});
         rowButton("清空歌词缓存",()->{new LyricsDb(this).clearAll();Toast.makeText(this,"缓存已清空",Toast.LENGTH_SHORT).show();});
         rowButton("立即重新同步",()->send(LyricsService.ACTION_RESYNC));
         rowButton("停止服务",()->send(LyricsService.ACTION_STOP));
