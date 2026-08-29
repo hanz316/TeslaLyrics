@@ -1,0 +1,136 @@
+name: Build Tesla Lyrics Detector APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'detector/**'
+      - '.github/workflows/build-detector.yml'
+  workflow_dispatch:
+
+jobs:
+  build-detector:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate standalone detector project
+        shell: bash
+        run: |
+          mkdir -p detector_project/app/src/main/java/com/teslalyrics/detector
+          cp detector/DetectorMainActivity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorMainActivity.java
+
+          cat > detector_project/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = 'TeslaLyricsDetector'
+          include ':app'
+          EOF
+
+          cat > detector_project/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > detector_project/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+
+          cat > detector_project/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.teslalyrics.detector'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.teslalyrics.detector'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 12
+                  versionName 'FULLSCAN12'
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat > detector_project/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <queries>
+                  <package android:name="com.netease.cloudmusic" />
+              </queries>
+              <application
+                  android:allowBackup="false"
+                  android:label="Tesla Lyrics Detector"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity
+                      android:name=".DetectorMainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service
+                      android:name=".DetectorMainActivity$SessionAccessService"
+                      android:label="Tesla Lyrics Detector 媒体读取"
+                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.service.notification.NotificationListenerService" />
+                      </intent-filter>
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Android lint
+        working-directory: detector_project
+        run: gradle --no-daemon lintDebug
+
+      - name: Build detector APK
+        working-directory: detector_project
+        run: gradle --no-daemon assembleDebug
+
+      - name: Rename APK
+        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-FULLSCAN12.apk
+
+      - name: Upload detector APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeslaLyrics-Detector-FULLSCAN12
+          path: TeslaLyrics-Detector-FULLSCAN12.apk
+          if-no-files-found: error
