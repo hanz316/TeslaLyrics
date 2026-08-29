@@ -14,8 +14,10 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        AppState.get().log.add("BUILD MIXSCAN2 transport init");
-        NeteaseVocalMixScanner.scanAsync(context);
+        AppState.get().log.add("BUILD SINGTRACE3");
+        // MIXSCAN2 found the actual separated-vocal path. Trace exact signatures,
+        // method bodies and callers for setMusicVoiceVolume / audioSepTrackVoiceVolume.
+        NeteaseSingTraceScanner.scanAsync(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
