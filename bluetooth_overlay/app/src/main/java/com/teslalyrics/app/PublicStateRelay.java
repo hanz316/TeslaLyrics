@@ -14,10 +14,10 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        AppState.get().log.add("BUILD IPCTRACE4");
-        // SINGTRACE3 confirmed setMusicVoiceVolume(F) and the separated-track control path.
-        // Now find an exported Binder/service/broadcast/deep-link path callable while locked.
-        NeteaseIpcTraceScanner.scanAsync(context);
+        AppState.get().log.add("BUILD IPCENTRY5");
+        // IPlayService is an in-process Java interface, not an AIDL contract. Check the
+        // actual exported PlayService/onBind path and real Binder/MediaSession commands.
+        NeteaseExternalEntryScanner.scanAsync(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
