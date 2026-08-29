@@ -52,7 +52,7 @@ public final class NeteaseKaraokeVolumeScanner {
 
     private static int scanDex(String name,byte[] b){
         if(b.length<0x70)return 0;
-        int stringsN=i32(b,0x38), stringsOff=i32(b,0x3c), classesN=i32(b,0x60), classesOff=i32(b,0x64), methodsN=i32(b,0x58), methodsOff=i32(b,0x5c), typesN=i32(b,0x40), typesOff=i32(b,0x44);
+        int stringsN=i32(b,0x38), stringsOff=i32(b,0x3c), classesN=i32(b,0x60), classesOff=i32(b,0x64);
         if(stringsN<=0||classesN<=0)return 0;
         String[] strings=new String[stringsN]; int target=-1;
         for(int i=0;i<stringsN;i++){
@@ -84,7 +84,7 @@ public final class NeteaseKaraokeVolumeScanner {
                             int cu=u16(b,start+u*2),op=cu&0xff;
                             if(op==0x1a&&u+1<units){int si=u16(b,start+(u+1)*2);if(si==target)contains=true;if(si>=0&&si<strings.length&&strings[si]!=null){String s=strings[si];String lo=s.toLowerCase(java.util.Locale.ROOT);if(lo.contains("karaoke")||lo.contains("volume")||lo.contains("vocal")||s.contains("人声")||s.contains("原唱")||s.contains("伴奏"))ss.add(s);}}
                             else if(op==0x12){int lit=(cu>>12)&0xf;if((lit&8)!=0)lit|=~0xf;nums.add(lit);} // const/4
-                            else if(op==0x13&&u+1<units){nums.add((short)u16(b,start+(u+1)*2));} // const/16
+                            else if(op==0x13&&u+1<units){nums.add((int)(short)u16(b,start+(u+1)*2));} // const/16
                             else if(op==0x14&&u+2<units){nums.add(u16(b,start+(u+1)*2)|(u16(b,start+(u+2)*2)<<16));} // const
                         }
                         if(contains){
