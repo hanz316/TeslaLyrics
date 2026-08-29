@@ -14,8 +14,9 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        AppState.get().log.add("BUILD CONTROL7");
+        AppState.get().log.add("BUILD CONTROL8");
         NeteaseControlLab.start(context);
+        NeteaseAidlDexInspector.scanAsync(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
