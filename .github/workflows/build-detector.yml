@@ -1,27 +1,27 @@
-name: Build Tesla Lyrics Detector APK
+name: Build Tesla Lyrics Patch Prep APK
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'detector/**'
+      - 'detector/NeteaseApkExporterActivity.java'
       - '.github/workflows/build-detector.yml'
   workflow_dispatch:
 
 jobs:
-  build-detector:
+  build-patch-prep:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate standalone detector project
+      - name: Generate standalone patch prep project
         shell: bash
         run: |
-          mkdir -p detector_project/app/src/main/java/com/teslalyrics/detector
-          cp detector/DetectorFinalScanActivity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorFinalScanActivity.java
+          mkdir -p patchprep_project/app/src/main/java/com/teslalyrics/detector
+          cp detector/NeteaseApkExporterActivity.java patchprep_project/app/src/main/java/com/teslalyrics/detector/NeteaseApkExporterActivity.java
 
-          cat > detector_project/settings.gradle <<'EOF'
+          cat > patchprep_project/settings.gradle <<'EOF'
           pluginManagement {
               repositories {
                   google()
@@ -36,22 +36,22 @@ jobs:
                   mavenCentral()
               }
           }
-          rootProject.name = 'TeslaLyricsDetector'
+          rootProject.name = 'TeslaLyricsPatchPrep'
           include ':app'
           EOF
 
-          cat > detector_project/build.gradle <<'EOF'
+          cat > patchprep_project/build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.7.3' apply false
           }
           EOF
 
-          cat > detector_project/gradle.properties <<'EOF'
+          cat > patchprep_project/gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
           android.useAndroidX=true
           EOF
 
-          cat > detector_project/app/build.gradle <<'EOF'
+          cat > patchprep_project/app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
           }
@@ -64,8 +64,8 @@ jobs:
                   applicationId 'com.teslalyrics.detector'
                   minSdk 29
                   targetSdk 35
-                  versionCode 19
-                  versionName 'FINALSCAN'
+                  versionCode 20
+                  versionName 'PATCHPREP1'
               }
 
               compileOptions {
@@ -75,7 +75,7 @@ jobs:
           }
           EOF
 
-          cat > detector_project/app/src/main/AndroidManifest.xml <<'EOF'
+          cat > patchprep_project/app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <queries>
@@ -83,10 +83,10 @@ jobs:
               </queries>
               <application
                   android:allowBackup="false"
-                  android:label="Tesla Lyrics Detector FINALSCAN"
+                  android:label="Tesla Lyrics Patch Prep"
                   android:theme="@android:style/Theme.Material.Light.NoActionBar">
                   <activity
-                      android:name=".DetectorFinalScanActivity"
+                      android:name=".NeteaseApkExporterActivity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -109,19 +109,19 @@ jobs:
           gradle-version: '8.9'
 
       - name: Android lint
-        working-directory: detector_project
+        working-directory: patchprep_project
         run: gradle --no-daemon lintDebug
 
-      - name: Build detector APK
-        working-directory: detector_project
+      - name: Build patch prep APK
+        working-directory: patchprep_project
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-FINALSCAN.apk
+        run: cp patchprep_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-PatchPrep.apk
 
-      - name: Upload detector APK
+      - name: Upload patch prep APK
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-Detector-FINALSCAN
-          path: TeslaLyrics-Detector-FINALSCAN.apk
+          name: TeslaLyrics-PatchPrep
+          path: TeslaLyrics-PatchPrep.apk
           if-no-files-found: error
