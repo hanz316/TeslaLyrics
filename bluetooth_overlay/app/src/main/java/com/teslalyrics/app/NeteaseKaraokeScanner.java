@@ -53,7 +53,7 @@ public final class NeteaseKaraokeScanner {
         PackageInfo pi=pm.getPackageInfo(PKG,
                 PackageManager.GET_ACTIVITIES|PackageManager.GET_SERVICES|PackageManager.GET_RECEIVERS|PackageManager.GET_PROVIDERS);
         ApplicationInfo ai=pm.getApplicationInfo(PKG,0);
-        AppState.get().log.add("NCM scan start: v"+pi.versionName+" ("+pi.getLongVersionCode()+")");
+        AppState.get().log.add("NCM scan start: v"+pi.versionName+" ("+pi.versionCode+")");
 
         List<Hit> hits=new ArrayList<>();
         Set<String> seen=new HashSet<>();
