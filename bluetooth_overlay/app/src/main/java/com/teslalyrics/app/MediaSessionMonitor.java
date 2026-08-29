@@ -2,10 +2,13 @@ package com.teslalyrics.app;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.media.MediaDescription;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
+import android.media.session.MediaSession;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -15,11 +18,17 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class MediaSessionMonitor {
     private static final List<String> PREFERRED=Arrays.asList(
             "com.netease.cloudmusic","com.apple.android.music","com.tencent.qqmusic",
             "com.spotify.music","com.google.android.apps.youtube.music");
+    private static final Pattern NETEASE_ID=Pattern.compile("(?<!\\d)(\\d{5,})(?!\\d)");
+    private static final String[] NETEASE_ID_KEYS={
+            "com.netease.cloudmusic.music_id","music_id","songId","song_id","id"
+    };
 
     private final AppState state=AppState.get();
     private final TelemetryProcessor processor;
@@ -29,6 +38,7 @@ public final class MediaSessionMonitor {
     private MediaController current;
     private String currentPackage="";
     private String lastCustomActionsSig="";
+    private String lastResolvedNeteaseId="";
     private boolean started=false;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessionsListener=this::choose;
@@ -97,6 +107,7 @@ public final class MediaSessionMonitor {
         current=best;
         currentPackage=best.getPackageName()==null?"":best.getPackageName();
         lastCustomActionsSig="";
+        lastResolvedNeteaseId="";
         try{current.registerCallback(callback,handler);}catch(Exception ignored){}
         state.setMediaConnected(true,currentPackage);
         state.log.add("Player session: "+friendlyName(currentPackage));
@@ -128,13 +139,14 @@ public final class MediaSessionMonitor {
                     text(md,MediaMetadata.METADATA_KEY_ARTIST),
                     text(md,MediaMetadata.METADATA_KEY_ALBUM_ARTIST),
                     text(md,MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE));
+            String mediaId=resolveMediaId(c,md,ps,title,artist);
 
             JSONObject f=new JSONObject();
             f.put("MediaNowPlayingTitle",title);
             f.put("MediaNowPlayingArtist",artist);
             f.put("MediaNowPlayingAlbum",text(md,MediaMetadata.METADATA_KEY_ALBUM));
             f.put("MediaNowPlayingDuration",Math.max(0,md.getLong(MediaMetadata.METADATA_KEY_DURATION)));
-            f.put("MediaMediaId",string(md,MediaMetadata.METADATA_KEY_MEDIA_ID));
+            f.put("MediaMediaId",mediaId);
             f.put("MediaPlaybackSource",friendlyName(currentPackage));
             if(ps!=null){
                 reportCustomActions(ps);
@@ -149,6 +161,84 @@ public final class MediaSessionMonitor {
             PublicStateRelay.get().publish(f);
             state.setMediaConnected(true,currentPackage);
         }catch(Exception e){state.log.add("Media publish error: "+e.getClass().getSimpleName());}
+    }
+
+    private String resolveMediaId(MediaController c,MediaMetadata md,PlaybackState ps,String title,String artist){
+        String raw=string(md,MediaMetadata.METADATA_KEY_MEDIA_ID);
+        if(!"com.netease.cloudmusic".equals(currentPackage))return raw;
+
+        String id=extractNumericId(raw);
+        if(id.isEmpty()){
+            for(String key:NETEASE_ID_KEYS){
+                id=extractNumericId(string(md,key));
+                if(!id.isEmpty())break;
+            }
+        }
+        if(id.isEmpty())id=neteaseIdFromQueue(c,ps,title,artist);
+        if(!id.isEmpty()){
+            if(!id.equals(lastResolvedNeteaseId)){
+                lastResolvedNeteaseId=id;
+                state.log.add("NetEase song id: "+id);
+            }
+            return id;
+        }
+        return raw;
+    }
+
+    private String neteaseIdFromQueue(MediaController c,PlaybackState ps,String title,String artist){
+        try{
+            List<MediaSession.QueueItem> q=c.getQueue();
+            if(q==null||q.isEmpty())return "";
+            long active=ps==null?MediaSession.QueueItem.UNKNOWN_ID:ps.getActiveQueueItemId();
+            if(active!=MediaSession.QueueItem.UNKNOWN_ID){
+                for(MediaSession.QueueItem item:q){
+                    if(item!=null&&item.getQueueId()==active){
+                        String id=neteaseIdFromDescription(item.getDescription());
+                        if(!id.isEmpty())return id;
+                    }
+                }
+            }
+            String nt=compact(title),na=compact(artist);
+            for(MediaSession.QueueItem item:q){
+                if(item==null)continue;
+                MediaDescription d=item.getDescription();
+                if(d==null)continue;
+                String dt=compact(String.valueOf(d.getTitle()));
+                String da=compact(String.valueOf(d.getSubtitle()));
+                boolean titleMatch=!nt.isEmpty()&&(dt.equals(nt)||dt.contains(nt)||nt.contains(dt));
+                boolean artistMatch=na.isEmpty()||da.isEmpty()||da.equals(na)||da.contains(na)||na.contains(da);
+                if(titleMatch&&artistMatch){
+                    String id=neteaseIdFromDescription(d);
+                    if(!id.isEmpty())return id;
+                }
+            }
+        }catch(Exception ignored){}
+        return "";
+    }
+
+    private static String neteaseIdFromDescription(MediaDescription d){
+        if(d==null)return "";
+        String id=extractNumericId(d.getMediaId());
+        if(!id.isEmpty())return id;
+        Bundle e=d.getExtras();
+        if(e!=null){
+            for(String key:NETEASE_ID_KEYS){
+                Object v=e.get(key);
+                id=extractNumericId(v==null?"":String.valueOf(v));
+                if(!id.isEmpty())return id;
+            }
+        }
+        return "";
+    }
+
+    private static String extractNumericId(String raw){
+        if(raw==null||raw.isEmpty())return "";
+        Matcher m=NETEASE_ID.matcher(raw);
+        return m.find()?m.group(1):"";
+    }
+
+    private static String compact(String s){
+        return s==null?"":s.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]","");
     }
 
     private void reportCustomActions(PlaybackState ps){
@@ -257,6 +347,7 @@ public final class MediaSessionMonitor {
         current=null;
         currentPackage="";
         lastCustomActionsSig="";
+        lastResolvedNeteaseId="";
     }
 
     private static String text(MediaMetadata m,String key){CharSequence v=m==null?null:m.getText(key);return v==null?"":v.toString().trim();}
