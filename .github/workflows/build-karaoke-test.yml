@@ -1,0 +1,110 @@
+name: Build Karaoke Bridge Test APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'karaoke_test/**'
+      - '.github/workflows/build-karaoke-test.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate Android project
+        shell: bash
+        run: |
+          mkdir -p karaoke_project/app/src/main/java/com/teslalyrics/karaoketest
+          mkdir -p karaoke_project/app/src/main/java/com/netease/cloudmusic/aidl
+          cp karaoke_test/KaraokeBridgeTestActivity.java karaoke_project/app/src/main/java/com/teslalyrics/karaoketest/
+          cp karaoke_test/MediaSessionCallbackParam.java karaoke_project/app/src/main/java/com/netease/cloudmusic/aidl/
+
+          cat > karaoke_project/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name='KaraokeBridgeTest'
+          include ':app'
+          EOF
+
+          cat > karaoke_project/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > karaoke_project/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+
+          cat > karaoke_project/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.teslalyrics.karaoketest'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.teslalyrics.karaoketest'
+                  minSdk 29
+                  targetSdk 35
+                  versionCode 1
+                  versionName 'PATCHBRIDGE1'
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat > karaoke_project/app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <queries><package android:name="com.netease.cloudmusic" /></queries>
+              <application android:allowBackup="false" android:label="Tesla Lyrics Karaoke Test" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity android:name=".KaraokeBridgeTestActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Lint
+        working-directory: karaoke_project
+        run: gradle --no-daemon lintDebug
+
+      - name: Build
+        working-directory: karaoke_project
+        run: gradle --no-daemon assembleDebug
+
+      - name: Rename
+        run: cp karaoke_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-KaraokeTest-PATCHBRIDGE1.apk
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeslaLyrics-KaraokeTest-PATCHBRIDGE1
+          path: TeslaLyrics-KaraokeTest-PATCHBRIDGE1.apk
+          if-no-files-found: error
