@@ -22,8 +22,6 @@ public final class LyricsService extends Service implements AppState.Listener {
     private LyricsRepository repo;
     private TelemetryProcessor processor;
     private MediaSessionMonitor media;
-    private LocalServer local;
-    private Ipv6ProbeServer ipv6;
     private final Handler main=new Handler(Looper.getMainLooper());
     private String lastNotificationTrack="";
     private boolean foregroundStarted=false,uiPending=false,shutdown=false;
@@ -35,10 +33,9 @@ public final class LyricsService extends Service implements AppState.Listener {
         db=new LyricsDb(this);
         repo=new LyricsRepository(db);
         processor=new TelemetryProcessor(repo);
-        PublicStateRelay.get().configure(this);
         media=new MediaSessionMonitor(this,processor);
-        local=new LocalServer(this);
-        ipv6=new Ipv6ProbeServer();
+        WebRtcBridge.get().setMedia(media);
+        PublicStateRelay.get().configure(this);
         state.setGlobalOffsetMs(settings.globalOffset());
         state.addListener(this);
         createChannel();
@@ -55,10 +52,10 @@ public final class LyricsService extends Service implements AppState.Listener {
         }
         ensureForeground();
         state.setServiceRunning(true);
-        if(local!=null)local.start();
-        if(ipv6!=null)ipv6.start();
         media.start();
         if(ACTION_RESYNC.equals(a)){
+            PublicStateRelay.get().forceNext();
+            MultiLyricsFetcher.get().republishLatest();
             TrackMetadata t=state.trackCopy();
             if(!t.title.isEmpty())repo.load(t);
             media.scan();
@@ -80,9 +77,8 @@ public final class LyricsService extends Service implements AppState.Listener {
         if(shutdown)return;
         shutdown=true;
         main.removeCallbacks(uiBroadcast);
-        if(ipv6!=null)ipv6.stop();
-        if(local!=null)local.stop();
         if(media!=null)media.stop();
+        WebRtcBridge.get().stop();
         if(state!=null){state.removeListener(this);state.setServiceRunning(false);}
     }
 
@@ -91,17 +87,16 @@ public final class LyricsService extends Service implements AppState.Listener {
 
     private void createChannel(){
         NotificationChannel c=new NotificationChannel("tesla_lyrics","Tesla Lyrics",NotificationManager.IMPORTANCE_LOW);
-        c.setDescription("保持播放器状态与 Tesla 局域网歌词页面同步");
+        c.setDescription("保持播放器状态与 Tesla WebRTC 歌词页面同步");
         getSystemService(NotificationManager.class).createNotificationChannel(c);
     }
 
     private Notification notification(){
         TrackMetadata t=state.trackCopy();
-        String now=t.title.isEmpty()?"等待手机播放器":t.title+" - "+t.artist;
-        String text=now+"  "+LocalServer.primaryUrl();
+        String text=(t.title.isEmpty()?"等待手机播放器":t.title+" - "+t.artist)+"  WebRTC";
         PendingIntent pi=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this,"tesla_lyrics")
-                .setContentTitle("Tesla Lyrics · LAN Probe")
+                .setContentTitle("Tesla Lyrics · WebRTC")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentIntent(pi)
@@ -121,7 +116,7 @@ public final class LyricsService extends Service implements AppState.Listener {
     private void updateNotificationIfNeeded(){
         if(!foregroundStarted)return;
         TrackMetadata t=state.trackCopy();
-        String key=t.title+"\n"+t.artist+"\n"+NetworkUtils.bestLanAddress()+"\n"+NetworkUtils.bestGlobalV6Address();
+        String key=t.title+"\n"+t.artist;
         if(key.equals(lastNotificationTrack))return;
         lastNotificationTrack=key;
         NotificationManager nm=getSystemService(NotificationManager.class);
@@ -130,10 +125,7 @@ public final class LyricsService extends Service implements AppState.Listener {
 
     @Override public void onStateChanged(){
         updateNotificationIfNeeded();
-        if(!uiPending){
-            uiPending=true;
-            main.postDelayed(uiBroadcast,120);
-        }
+        if(!uiPending){uiPending=true;main.postDelayed(uiBroadcast,120);}
     }
 
     private final Runnable uiBroadcast=()->{
