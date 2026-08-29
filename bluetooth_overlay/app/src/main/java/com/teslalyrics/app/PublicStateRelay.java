@@ -4,11 +4,10 @@ import android.content.Context;
 import org.json.JSONObject;
 
 /**
- * LAN-probe build coordinator.
- *
- * Public ntfy transport is intentionally disabled in this build. We keep the
- * same API so MediaSessionMonitor and MultiLyricsFetcher continue to work,
- * while track changes still trigger local multi-source lyric matching.
+ * Compatibility coordinator for the WebRTC transport.
+ * Public ntfy transport is not used. Track changes still trigger the existing
+ * multi-source lyrics fetcher, while state and lyrics are sent to Tesla over
+ * the WebRTC DataChannel managed by WebRtcBridge.
  */
 public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
@@ -20,11 +19,13 @@ public final class PublicStateRelay {
     public synchronized void configure(Context context){
         configured=true;
         lastLyricsTrackKey="";
-        AppState.get().log.add("Public relay disabled: LAN probe mode");
+        WebRtcBridge.get().configure(context);
+        AppState.get().log.add("Transport: WebRTC P2P + STUN, no ntfy");
     }
 
     public synchronized void forceNext(){
-        // No public transport in LAN probe mode.
+        TrackMetadata t=AppState.get().trackCopy();
+        if(!t.title.isEmpty())AppState.get().log.add("WebRTC resync requested");
     }
 
     public synchronized void publish(JSONObject f){
@@ -34,16 +35,34 @@ public final class PublicStateRelay {
         String artist=f.optString("MediaNowPlayingArtist","");
         String album=f.optString("MediaNowPlayingAlbum","");
         long duration=Math.max(0,f.optLong("MediaNowPlayingDuration",0));
+        long elapsed=Math.max(0,f.optLong("MediaNowPlayingElapsed",0));
+        String status=f.optString("MediaPlaybackStatus","Paused");
+        boolean playing="Playing".equalsIgnoreCase(status);
         String lyricsTrackKey=title+'\u0001'+artist+'\u0001'+album+'\u0001'+duration;
         if(!lyricsTrackKey.equals(lastLyricsTrackKey)){
             lastLyricsTrackKey=lyricsTrackKey;
             MultiLyricsFetcher.get().ensure(f);
-            AppState.get().log.add("LAN track ready: "+title);
+            AppState.get().log.add("WebRTC track: "+title);
         }
+        try{
+            JSONObject o=new JSONObject();
+            o.put("kind","state");
+            o.put("title",title);
+            o.put("artist",artist);
+            o.put("album",album);
+            o.put("source",f.optString("MediaPlaybackSource",""));
+            o.put("duration",duration);
+            o.put("elapsed",elapsed);
+            o.put("playing",playing);
+            o.put("sentAtMs",System.currentTimeMillis());
+            o.put("effectiveOffset",AppState.get().effectiveOffsetMs());
+            WebRtcBridge.get().sendState(o);
+        }catch(Exception ignored){}
     }
 
     public void publishLyrics(String key,String provider,String lrc,int score){
+        WebRtcBridge.get().sendLyrics(key,provider,lrc,score);
         if(provider!=null&&!provider.isEmpty())
-            AppState.get().log.add("Lyrics local-only: "+provider+" score="+score);
+            AppState.get().log.add("WebRTC lyrics: "+provider+" score="+score);
     }
 }
