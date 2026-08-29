@@ -11,7 +11,7 @@ public final class AppState {
     public interface Listener { void onStateChanged(); }
     private static final AppState I=new AppState();
     public static AppState get(){return I;}
-    public final EventLog log=new EventLog(500);
+    public final EventLog log=new EventLog(2000);
     private final CopyOnWriteArrayList<Listener> listeners=new CopyOnWriteArrayList<>();
     private TrackMetadata track=new TrackMetadata();
     private List<LyricsLine> lyrics=new ArrayList<>();
