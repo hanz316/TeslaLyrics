@@ -5,6 +5,8 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -49,7 +51,7 @@ public final class MainActivity extends Activity {
 
     private void buildUi(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(24,20,24,20);root.setBackgroundColor(Color.rgb(15,15,17));
-        root.addView(txt("TESLA LYRICS · WEBRTC",24,true));
+        root.addView(txt("TESLA LYRICS",24,true));
         LinearLayout tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);tabs.addView(tab("首页",0));tabs.addView(tab("诊断",1));root.addView(tabs);
         ScrollView sv=new ScrollView(this);content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);sv.addView(content);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         setContentView(root);showPage(0);
@@ -62,14 +64,26 @@ public final class MainActivity extends Activity {
         homeStatus=txt("",18,false);content.addView(homeStatus);permissionStatus=txt("",15,false);content.addView(permissionStatus);
         rowButton("开启通知使用权（只用于读取播放器）",this::openMediaAccess);
         LinearLayout r=row();r.addView(make("启动服务",this::startCore));r.addView(make("重新扫描播放器",()->send(LyricsService.ACTION_SCAN)));r.addView(make("立即重新同步",()->send(LyricsService.ACTION_RESYNC)));content.addView(r);
-        content.addView(txt("WebRTC 连接",18,true));rtcStatus=txt("",15,false);content.addView(rtcStatus);
-        content.addView(txt("Tesla 浏览器打开：\n"+TESLA_URL+"\n\n通信：WebRTC DataChannel + STUN。\n歌词/进度/控制不经过 ntfy，也不使用 TURN。",15,false));
+        content.addView(txt("WSS/MQTT 连接",18,true));rtcStatus=txt("",15,false);content.addView(rtcStatus);
+        content.addView(txt("Tesla 浏览器打开：\n"+TESLA_URL+"\n\n通信：安全 WSS/MQTT。歌词/进度/控制不经过 ntfy。",15,false));
     }
 
     private void diagnosticsPage(){
+        rowButton("重新开始随心唱动态抓取",()->{NeteaseKaraokeDynamicProbe.get().start(this);Toast.makeText(this,"动态抓取已重新开始",Toast.LENGTH_SHORT).show();refresh();});
+        rowButton("停止随心唱动态抓取",()->{NeteaseKaraokeDynamicProbe.get().stop();refresh();});
+        rowButton("刷新诊断",this::refresh);
+        rowButton("复制全部诊断",this::copyDiagnostics);
         rowButton("清空歌词缓存",()->{new LyricsDb(this).clearAll();Toast.makeText(this,"缓存已清空",Toast.LENGTH_SHORT).show();});
-        rowButton("立即重新同步",()->send(LyricsService.ACTION_RESYNC));rowButton("停止服务",()->send(LyricsService.ACTION_STOP));
+        rowButton("立即重新同步",()->send(LyricsService.ACTION_RESYNC));
+        rowButton("停止服务",()->send(LyricsService.ACTION_STOP));
         diag=txt("",15,false);logs=txt("",13,false);content.addView(txt("诊断",18,true));content.addView(diag);content.addView(txt("最近事件",18,true));content.addView(logs);
+    }
+
+    private void copyDiagnostics(){
+        String all=state.diagnostics()+"\n\n"+NeteaseKaraokeDynamicProbe.get().report()+"\n\n"+WebRtcBridge.statusReport()+"\n\n最近事件\n"+String.join("\n",state.log.snapshot());
+        ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+        if(cm!=null){cm.setPrimaryClip(ClipData.newPlainText("TeslaLyrics diagnostics",all));Toast.makeText(this,"全部诊断已复制",Toast.LENGTH_SHORT).show();}
+        else Toast.makeText(this,"无法访问剪贴板",Toast.LENGTH_SHORT).show();
     }
 
     private void openMediaAccess(){try{startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));}catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}}
@@ -87,7 +101,7 @@ public final class MainActivity extends Activity {
         if(homeStatus!=null)homeStatus.setText("服务："+state.diagnostics().split("\\n")[0].replace("Service: ","")+"\n播放器："+(state.mediaConnected()?MediaSessionMonitor.friendlyName(state.playerPackage()):"等待连接")+"\n\n当前：\n"+(t.title.isEmpty()?"等待手机播放器播放":t.title)+"\n"+t.artist);
         if(permissionStatus!=null)permissionStatus.setText("通知使用权："+(access?"已开启":"未开启")+(access?"\n已可读取手机播放器 MediaSession":"\n请开启，否则无法读取当前歌曲和进度"));
         if(rtcStatus!=null)rtcStatus.setText(WebRtcBridge.statusReport());
-        if(diag!=null)diag.setText(state.diagnostics()+"\n\n"+WebRtcBridge.statusReport());
+        if(diag!=null)diag.setText(state.diagnostics()+"\n\n"+NeteaseKaraokeDynamicProbe.get().report()+"\n\n"+WebRtcBridge.statusReport());
         if(logs!=null)logs.setText(String.join("\n",state.log.snapshot()));
     }
 
