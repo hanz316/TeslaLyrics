@@ -3,12 +3,6 @@ package com.teslalyrics.app;
 import android.content.Context;
 import org.json.JSONObject;
 
-/**
- * Compatibility coordinator for the WebRTC transport.
- * Public ntfy transport is not used. Track changes still trigger the existing
- * multi-source lyrics fetcher, while state and lyrics are sent to Tesla over
- * the WebRTC DataChannel managed by WebRtcBridge.
- */
 public final class PublicStateRelay {
     private static final PublicStateRelay I=new PublicStateRelay();
     public static PublicStateRelay get(){return I;}
@@ -20,12 +14,13 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        AppState.get().log.add("Transport: WebRTC P2P + STUN, no ntfy");
+        NeteaseKaraokeScanner.scanAsync(context);
+        AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
     public synchronized void forceNext(){
         TrackMetadata t=AppState.get().trackCopy();
-        if(!t.title.isEmpty())AppState.get().log.add("WebRTC resync requested");
+        if(!t.title.isEmpty())AppState.get().log.add("WSS resync requested");
     }
 
     public synchronized void publish(JSONObject f){
@@ -42,7 +37,7 @@ public final class PublicStateRelay {
         if(!lyricsTrackKey.equals(lastLyricsTrackKey)){
             lastLyricsTrackKey=lyricsTrackKey;
             MultiLyricsFetcher.get().ensure(f);
-            AppState.get().log.add("WebRTC track: "+title);
+            AppState.get().log.add("WSS track: "+title);
         }
         try{
             JSONObject o=new JSONObject();
@@ -62,7 +57,6 @@ public final class PublicStateRelay {
 
     public void publishLyrics(String key,String provider,String lrc,int score){
         WebRtcBridge.get().sendLyrics(key,provider,lrc,score);
-        if(provider!=null&&!provider.isEmpty())
-            AppState.get().log.add("WebRTC lyrics: "+provider+" score="+score);
+        if(provider!=null&&!provider.isEmpty())AppState.get().log.add("WSS lyrics: "+provider+" score="+score);
     }
 }
