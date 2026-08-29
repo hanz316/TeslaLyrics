@@ -14,9 +14,9 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        // Passive AudioManager reads returned empty on this device. Before attempting any
-        // vendor parameter writes, statically recover NetEase's actual karaoke volume range.
-        NeteaseKaraokeVolumeScanner.scanAsync(context);
+        // Xiaomi-specific KTV vendor parameters were found, but this phone is not Xiaomi.
+        // Scan generic vocal/original/accompaniment mix code used by NetEase sing mode.
+        NeteaseVocalMixScanner.scanAsync(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
