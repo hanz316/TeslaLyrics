@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p detector_project/app/src/main/java/com/teslalyrics/detector
-          cp detector/DetectorBridge18Activity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorBridge18Activity.java
+          cp detector/DetectorFinalScanActivity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorFinalScanActivity.java
 
           cat > detector_project/settings.gradle <<'EOF'
           pluginManagement {
@@ -64,8 +64,8 @@ jobs:
                   applicationId 'com.teslalyrics.detector'
                   minSdk 29
                   targetSdk 35
-                  versionCode 18
-                  versionName 'BRIDGE18'
+                  versionCode 19
+                  versionName 'FINALSCAN'
               }
 
               compileOptions {
@@ -83,10 +83,10 @@ jobs:
               </queries>
               <application
                   android:allowBackup="false"
-                  android:label="Tesla Lyrics Detector"
+                  android:label="Tesla Lyrics Detector FINALSCAN"
                   android:theme="@android:style/Theme.Material.Light.NoActionBar">
                   <activity
-                      android:name=".DetectorBridge18Activity"
+                      android:name=".DetectorFinalScanActivity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -117,11 +117,11 @@ jobs:
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-BRIDGE18.apk
+        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-FINALSCAN.apk
 
       - name: Upload detector APK
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-Detector-BRIDGE18
-          path: TeslaLyrics-Detector-BRIDGE18.apk
+          name: TeslaLyrics-Detector-FINALSCAN
+          path: TeslaLyrics-Detector-FINALSCAN.apk
           if-no-files-found: error
