@@ -290,10 +290,11 @@ public class DetectorMainActivity extends Activity {
             frontier.add(SW_N); frontier.add(VOL_B); frontier.add(SW_O); frontier.add(SW_M);
             Set<String> seen = new LinkedHashSet<>(frontier);
             for (int depth=1; depth<=4; depth++) {
-                r.currentDepth = depth;
+                final int depthNow = depth;
+                r.currentDepth = depthNow;
                 r.nextFrontier.clear();
                 final Set<String> f = new HashSet<>(frontier);
-                scanAll(paths, (n,d) -> new Dex(n,d,r,depth,f).scan());
+                scanAll(paths, (n,d) -> new Dex(n,d,r,depthNow,f).scan());
                 Set<String> next = new LinkedHashSet<>(r.nextFrontier);
                 next.removeAll(seen);
                 log.add("FULL12 REV depth=" + depth + " frontier=" + frontier.size() + " newCallers=" + next.size());
