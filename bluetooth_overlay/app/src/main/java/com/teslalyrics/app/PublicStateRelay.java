@@ -14,7 +14,7 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        NeteaseKaraokeScanner.scanAsync(context);
+        NeteaseKaraokeXrefScanner.scanAsync(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
