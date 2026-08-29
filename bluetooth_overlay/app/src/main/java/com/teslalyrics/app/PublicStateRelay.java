@@ -14,10 +14,10 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        AppState.get().log.add("BUILD IPCENTRY5");
-        // IPlayService is an in-process Java interface, not an AIDL contract. Check the
-        // actual exported PlayService/onBind path and real Binder/MediaSession commands.
-        NeteaseExternalEntryScanner.scanAsync(context);
+        AppState.get().log.add("BUILD CARBIND6");
+        // IPCENTRY5 found several exported, unprotected NetEase car/third-party services.
+        // Safely bind only to those services and inspect Binder descriptors + exact service code.
+        NeteaseCarBinderProbe.start(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
