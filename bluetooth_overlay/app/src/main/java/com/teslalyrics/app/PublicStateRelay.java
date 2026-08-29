@@ -14,8 +14,7 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        // Xiaomi-specific KTV vendor parameters were found, but this phone is not Xiaomi.
-        // Scan generic vocal/original/accompaniment mix code used by NetEase sing mode.
+        AppState.get().log.add("BUILD MIXSCAN2 transport init");
         NeteaseVocalMixScanner.scanAsync(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
