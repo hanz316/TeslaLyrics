@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p detector_project/app/src/main/java/com/teslalyrics/detector
-          cp detector/DetectorBridge17Activity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorBridge17Activity.java
+          cp detector/DetectorBridge18Activity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorBridge18Activity.java
 
           cat > detector_project/settings.gradle <<'EOF'
           pluginManagement {
@@ -64,8 +64,8 @@ jobs:
                   applicationId 'com.teslalyrics.detector'
                   minSdk 29
                   targetSdk 35
-                  versionCode 17
-                  versionName 'BRIDGE17'
+                  versionCode 18
+                  versionName 'BRIDGE18'
               }
 
               compileOptions {
@@ -86,7 +86,7 @@ jobs:
                   android:label="Tesla Lyrics Detector"
                   android:theme="@android:style/Theme.Material.Light.NoActionBar">
                   <activity
-                      android:name=".DetectorBridge17Activity"
+                      android:name=".DetectorBridge18Activity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -117,11 +117,11 @@ jobs:
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-BRIDGE17.apk
+        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-BRIDGE18.apk
 
       - name: Upload detector APK
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-Detector-BRIDGE17
-          path: TeslaLyrics-Detector-BRIDGE17.apk
+          name: TeslaLyrics-Detector-BRIDGE18
+          path: TeslaLyrics-Detector-BRIDGE18.apk
           if-no-files-found: error
