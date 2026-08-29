@@ -142,7 +142,7 @@ public class DetectorBridge18Activity extends Activity {
                 boolean base=hasOwnerCall(z,BASE);
                 boolean as=hasOwnerCall(z,AIDL_STUB)&&containsCallText(z,"Landroid/os/IBinder;");
                 boolean bind=containsCallText(z,"->bindService(")||containsCallText(z,"->bindServiceAsUser(")||containsCallText(z,"->bindIsolatedService(");
-                boolean ps=z.types.contains(PS)||z.types.contains(MPS)||contains(z.strings,"PlayService")||containsFields(z,"PlayService");
+                boolean ps=z.types.contains(PS)||z.types.contains(MPS)||contains(z.strings,"PlayService")||containsFields(z.fields,"PlayService");
                 boolean intentClass=containsCallText(z,"Landroid/content/Intent;-><init>(Landroid/content/Context;Ljava/lang/Class;)V");
                 if(fj||as||(base&&(bind||intentClass||ps))||(bind&&ps)||(intentClass&&ps))r.callers.add(line("ROUTE18",sig,owner,sup,ifs,access,z));
             }
