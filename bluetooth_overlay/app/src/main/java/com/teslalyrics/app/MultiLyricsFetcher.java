@@ -44,6 +44,9 @@ public final class MultiLyricsFetcher {
     private static final int MAX_DONE=96;
     private static final Pattern TS=Pattern.compile("\\[(\\d{1,3}):(\\d{1,2}(?:\\.\\d{1,3})?)\\]");
     private static final Pattern BRACKETS=Pattern.compile("\\s*[\\(（\\[【].*?[\\)）\\]】]\\s*");
+    private static final Pattern NETEASE_ID=Pattern.compile("(?<!\\d)(\\d{5,})(?!\\d)");
+    private static final Pattern YRC_LINE=Pattern.compile("^\\[(\\d+),(\\d+)\\](.*)$");
+    private static final Pattern YRC_WORD=Pattern.compile("\\(\\d+,\\d+,\\d+\\)");
 
     private static final class Candidate {
         String provider,title,artist,lrc;
@@ -59,10 +62,15 @@ public final class MultiLyricsFetcher {
         String album=f.optString("MediaNowPlayingAlbum","").trim();
         long duration=Math.max(0,f.optLong("MediaNowPlayingDuration",0));
         String source=f.optString("MediaPlaybackSource","");
-        String mediaId=f.optString("MediaMediaId","");
+        String mediaId=extractNeteaseId(f.optString("MediaMediaId",""));
         String key=title+"|"+artist+"|"+album+"|"+duration;
         latestKey=key;
-        if(done.contains(key)||!loading.add(key))return;
+
+        // The NetEase session can publish title first and its exact song ID a moment later.
+        // If another provider already won, allow one exact-ID upgrade without changing the canonical key.
+        boolean neteaseUpgrade=source.contains("网易云")&&!mediaId.isEmpty()&&key.equals(publishedKey)&&!publishedProvider.contains("网易云");
+        if(done.contains(key)&&!neteaseUpgrade)return;
+        if(!loading.add(key))return;
         trackPool.execute(()->fetch(key,title,artist,album,duration,source,mediaId));
     }
 
@@ -145,20 +153,31 @@ public final class MultiLyricsFetcher {
     private List<Candidate> fetchNetease(String title,String artist,long duration,String mediaId){
         List<Candidate> out=new ArrayList<>();
         try{
-            if(mediaId.matches("\\d{3,}")){
+            if(!mediaId.isEmpty()){
                 String l=neteaseLyric(mediaId);
-                if(validLrc(l))out.add(new Candidate("网易云音乐",title,artist,duration,l));
+                if(validLrc(l)){
+                    AppState.get().log.add("NetEase lyrics exact id: "+mediaId);
+                    out.add(new Candidate("网易云音乐·原曲ID",title,artist,duration,l));
+                }
             }
             if(!out.isEmpty())return out;
             for(String[] q:queries(title,artist)){
-                JSONObject root=new JSONObject(get("https://music.163.com/api/search/get/web?s="+enc((q[0]+" "+q[1]).trim())+"&type=1&limit=12","https://music.163.com/"));
-                JSONObject result=root.optJSONObject("result");JSONArray songs=result==null?null:result.optJSONArray("songs");if(songs==null)continue;
-                for(int i=0;i<Math.min(10,songs.length());i++){
+                String keyword=(q[0]+" "+q[1]).trim();
+                JSONObject root=neteaseSearch(keyword);
+                JSONObject result=root.optJSONObject("result");
+                JSONArray songs=result==null?null:result.optJSONArray("songs");
+                if(songs==null)continue;
+                for(int i=0;i<Math.min(12,songs.length());i++){
                     JSONObject s=songs.optJSONObject(i);if(s==null)continue;
-                    String n=s.optString("name","");String ar=joinNames(s.optJSONArray("artists"));long d=s.optLong("duration",0);String id=String.valueOf(s.optLong("id",0));
-                    if(metaScore(n,ar,d,title,artist,duration)<58)continue;
-                    String l=neteaseLyric(id);if(validLrc(l))out.add(new Candidate("网易云音乐",n,ar,d,l));
-                    if(out.size()>=4)break;
+                    String n=s.optString("name","");
+                    String ar=joinNames(s.optJSONArray("artists"));
+                    if(ar.isEmpty())ar=joinNames(s.optJSONArray("ar"));
+                    long d=s.optLong("duration",s.optLong("dt",0));
+                    String id=String.valueOf(s.optLong("id",0));
+                    if("0".equals(id)||metaScore(n,ar,d,title,artist,duration)<58)continue;
+                    String l=neteaseLyric(id);
+                    if(validLrc(l))out.add(new Candidate("网易云音乐",n,ar,d,l));
+                    if(out.size()>=5)break;
                 }
                 if(!out.isEmpty())break;
             }
@@ -166,9 +185,44 @@ public final class MultiLyricsFetcher {
         return out;
     }
 
+    private JSONObject neteaseSearch(String keyword)throws Exception{
+        String base="https://music.163.com/api/search/get/web?csrf_token=&hlpretag=&hlposttag=&s="+enc(keyword)+"&type=1&offset=0&total=true&limit=18";
+        JSONObject root=new JSONObject(get(base,"https://music.163.com/"));
+        JSONObject result=root.optJSONObject("result");
+        if(result!=null&&result.optJSONArray("songs")!=null)return root;
+        String fallback="https://music.163.com/api/search/get?s="+enc(keyword)+"&type=1&offset=0&total=true&limit=18";
+        return new JSONObject(get(fallback,"https://music.163.com/"));
+    }
+
     private String neteaseLyric(String id)throws Exception{
-        JSONObject x=new JSONObject(get("https://music.163.com/api/song/lyric?id="+enc(id)+"&lv=-1&kv=-1&tv=-1","https://music.163.com/"));
-        JSONObject l=x.optJSONObject("lrc");return l==null?"":l.optString("lyric","");
+        JSONObject x=new JSONObject(get("https://music.163.com/api/song/lyric?id="+enc(id)+"&lv=-1&kv=-1&tv=-1&rv=-1&yv=-1","https://music.163.com/"));
+        JSONObject l=x.optJSONObject("lrc");
+        String plain=l==null?"":l.optString("lyric","");
+        if(validLrc(plain))return plain;
+        JSONObject y=x.optJSONObject("yrc");
+        String word=y==null?"":y.optString("lyric","");
+        String converted=yrcToLrc(word);
+        return validLrc(converted)?converted:plain;
+    }
+
+    private static String yrcToLrc(String yrc){
+        if(yrc==null||yrc.isEmpty())return "";
+        StringBuilder out=new StringBuilder();
+        String[] lines=yrc.split("\\r?\\n");
+        for(String line:lines){
+            Matcher m=YRC_LINE.matcher(line.trim());
+            if(!m.matches())continue;
+            long start;
+            try{start=Long.parseLong(m.group(1));}catch(Exception e){continue;}
+            String text=YRC_WORD.matcher(m.group(3)).replaceAll("").trim();
+            if(text.isEmpty())continue;
+            long min=start/60000L;
+            long rem=start%60000L;
+            long sec=rem/1000L;
+            long ms=rem%1000L;
+            out.append(String.format(Locale.US,"[%02d:%02d.%03d]",min,sec,ms)).append(text).append('\n');
+        }
+        return out.toString();
     }
 
     private List<Candidate> fetchQq(String title,String artist,long duration){
@@ -219,7 +273,7 @@ public final class MultiLyricsFetcher {
 
     private double score(Candidate c,String title,String artist,long duration,String playerSource){
         double s=metaScore(c.title,c.artist,c.durationMs,title,artist,duration);
-        if(c.provider.contains("网易云")&&playerSource.contains("网易云"))s+=18;
+        if(c.provider.contains("网易云")&&playerSource.contains("网易云"))s+=24;
         if(c.provider.contains("QQ")&&playerSource.contains("QQ"))s+=18;
         if(c.provider.contains("LRCLIB"))s+=4;
         int count=timeLineCount(c.lrc);if(count>=20)s+=5;else if(count<6)s-=30;
@@ -252,8 +306,21 @@ public final class MultiLyricsFetcher {
     private static boolean validLrc(String l){return timeLineCount(l)>=4;}
     private static int timeLineCount(String l){if(l==null)return 0;Matcher m=TS.matcher(l);int n=0;while(m.find()&&n<500)n++;return n;}
     private static long lastTimestamp(String l){if(l==null)return 0;Matcher m=TS.matcher(l);long last=0;while(m.find()){try{long t=Math.round((Long.parseLong(m.group(1))*60+Double.parseDouble(m.group(2)))*1000);if(t>last)last=t;}catch(Exception ignored){}}return last;}
-    private String get(String url,String referer)throws Exception{Request.Builder b=new Request.Builder().url(url).get().header("User-Agent","Mozilla/5.0 TeslaLyrics/1.3").header("Accept","application/json,text/plain,*/*");if(referer!=null)b.header("Referer",referer);try(Response r=http.newCall(b.build()).execute()){if(!r.isSuccessful())throw new Exception("HTTP "+r.code());return r.body()==null?"":r.body().string();}}
-    private String postJson(String url,String json,String referer)throws Exception{RequestBody body=RequestBody.create(json,MediaType.parse("application/json; charset=utf-8"));Request.Builder b=new Request.Builder().url(url).post(body).header("User-Agent","Mozilla/5.0 TeslaLyrics/1.3").header("Accept","application/json,text/plain,*/*");if(referer!=null)b.header("Referer",referer);try(Response r=http.newCall(b.build()).execute()){if(!r.isSuccessful())throw new Exception("HTTP "+r.code());return r.body()==null?"":r.body().string();}}
+    private static String extractNeteaseId(String raw){if(raw==null||raw.isEmpty())return "";Matcher m=NETEASE_ID.matcher(raw);return m.find()?m.group(1):"";}
+
+    private String get(String url,String referer)throws Exception{
+        Request.Builder b=new Request.Builder().url(url).get().header("Accept","application/json,text/plain,*/*");
+        if(url.contains("music.163.com")){
+            b.header("User-Agent","Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36");
+            b.header("Cookie","os=pc; appver=9.4.70; channel=netease;");
+        }else b.header("User-Agent","Mozilla/5.0 TeslaLyrics/1.4");
+        if(referer!=null)b.header("Referer",referer);
+        try(Response r=http.newCall(b.build()).execute()){
+            if(!r.isSuccessful())throw new Exception("HTTP "+r.code());
+            return r.body()==null?"":r.body().string();
+        }
+    }
+    private String postJson(String url,String json,String referer)throws Exception{RequestBody body=RequestBody.create(json,MediaType.parse("application/json; charset=utf-8"));Request.Builder b=new Request.Builder().url(url).post(body).header("User-Agent","Mozilla/5.0 TeslaLyrics/1.4").header("Accept","application/json,text/plain,*/*");if(referer!=null)b.header("Referer",referer);try(Response r=http.newCall(b.build()).execute()){if(!r.isSuccessful())throw new Exception("HTTP "+r.code());return r.body()==null?"":r.body().string();}}
     private static String enc(String s){try{return URLEncoder.encode(nz(s),"UTF-8");}catch(Exception e){return nz(s);}}
     private static String nz(String s){return s==null?"":s;}
 }
