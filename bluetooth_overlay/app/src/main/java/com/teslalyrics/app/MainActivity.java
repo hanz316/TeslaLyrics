@@ -25,7 +25,7 @@ import android.widget.Toast;
 
 public final class MainActivity extends Activity {
     private static final String TESLA_URL="https://hanz316.github.io/rtcapp/car.html";
-    private static final String BUILD_MARKER="IPCTRACE4";
+    private static final String BUILD_MARKER="IPCENTRY5";
     private final AppState state=AppState.get();
     private LinearLayout content;
     private TextView homeStatus,rtcStatus,diag,logs,permissionStatus;
