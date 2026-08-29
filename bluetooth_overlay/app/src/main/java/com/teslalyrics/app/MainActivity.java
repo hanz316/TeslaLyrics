@@ -8,14 +8,18 @@ import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -23,9 +27,17 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
 public final class MainActivity extends Activity {
     private static final String TESLA_URL="https://hanz316.github.io/rtcapp/car.html";
-    private static final String BUILD_MARKER="CONTROL11";
+    private static final String BUILD_MARKER="CONTROL11LOG";
     private final AppState state=AppState.get();
     private LinearLayout content;
     private TextView homeStatus,rtcStatus,diag,logs,permissionStatus,controlStatus;
@@ -73,6 +85,7 @@ public final class MainActivity extends Activity {
 
     private void diagnosticsPage(){
         rowButton("刷新诊断",this::refresh);
+        rowButton("一键导出诊断日志 TXT",this::exportDiagnosticsTxt);
         rowButton("复制全部诊断",this::copyDiagnostics);
         rowButton("重新连接 CMAPI / UCar",()->{NeteaseControlLab.reconnect(this);Toast.makeText(this,"正在重新连接",Toast.LENGTH_SHORT).show();});
         rowButton("反向扫描随心唱控制入口",()->{NeteaseXCall11Inspector.scanAsync(this);Toast.makeText(this,"正在反向扫描",Toast.LENGTH_SHORT).show();});
@@ -82,11 +95,50 @@ public final class MainActivity extends Activity {
         diag=txt("",15,false);logs=txt("",13,false);content.addView(txt("诊断",18,true));content.addView(diag);content.addView(txt("最近事件",18,true));content.addView(logs);
     }
 
+    private String buildDiagnosticsText(){
+        return "Build: "+BUILD_MARKER+"\n"+state.diagnostics()+"\n\n"+NeteaseControlLab.status()+"\n\n"+WebRtcBridge.statusReport()+"\n\n最近事件\n"+String.join("\n",state.log.snapshot())+"\n";
+    }
+
     private void copyDiagnostics(){
-        String all="Build: "+BUILD_MARKER+"\n"+state.diagnostics()+"\n\n"+NeteaseControlLab.status()+"\n\n"+WebRtcBridge.statusReport()+"\n\n最近事件\n"+String.join("\n",state.log.snapshot());
+        String all=buildDiagnosticsText();
         ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
         if(cm!=null){cm.setPrimaryClip(ClipData.newPlainText("TeslaLyrics diagnostics",all));Toast.makeText(this,"全部诊断已复制",Toast.LENGTH_SHORT).show();}
         else Toast.makeText(this,"无法访问剪贴板",Toast.LENGTH_SHORT).show();
+    }
+
+    private void exportDiagnosticsTxt(){
+        String name="TeslaLyrics-"+BUILD_MARKER+"-"+new SimpleDateFormat("yyyyMMdd-HHmmss",Locale.US).format(new Date())+".txt";
+        byte[] data=buildDiagnosticsText().getBytes(StandardCharsets.UTF_8);
+        try{
+            if(Build.VERSION.SDK_INT>=29){
+                ContentValues values=new ContentValues();
+                values.put(MediaStore.Downloads.DISPLAY_NAME,name);
+                values.put(MediaStore.Downloads.MIME_TYPE,"text/plain");
+                values.put(MediaStore.Downloads.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/TeslaLyrics");
+                Uri uri=getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);
+                if(uri==null)throw new IllegalStateException("MediaStore insert failed");
+                try(OutputStream os=getContentResolver().openOutputStream(uri)){
+                    if(os==null)throw new IllegalStateException("openOutputStream failed");
+                    os.write(data);
+                    os.flush();
+                }
+                state.log.add("Diagnostics TXT exported: Downloads/TeslaLyrics/"+name);
+                Toast.makeText(this,"已导出到 下载/TeslaLyrics/\n"+name,Toast.LENGTH_LONG).show();
+            }else{
+                File base=getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                if(base==null)base=getFilesDir();
+                File dir=new File(base,"TeslaLyrics");
+                if(!dir.exists()&&!dir.mkdirs())throw new IllegalStateException("mkdir failed");
+                File out=new File(dir,name);
+                try(OutputStream os=new FileOutputStream(out)){os.write(data);os.flush();}
+                state.log.add("Diagnostics TXT exported: "+out.getAbsolutePath());
+                Toast.makeText(this,"已导出：\n"+out.getAbsolutePath(),Toast.LENGTH_LONG).show();
+            }
+        }catch(Exception e){
+            state.log.add("Diagnostics TXT export failed: "+e.getClass().getSimpleName()+": "+e.getMessage());
+            Toast.makeText(this,"导出失败："+e.getClass().getSimpleName(),Toast.LENGTH_LONG).show();
+        }
+        refresh();
     }
 
     private void openMediaAccess(){try{startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));}catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}}
