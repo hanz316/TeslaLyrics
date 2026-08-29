@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p detector_project/app/src/main/java/com/teslalyrics/detector
-          cp detector/DetectorFocus13Activity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorFocus13Activity.java
+          cp detector/DetectorBridge14Activity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorBridge14Activity.java
 
           cat > detector_project/settings.gradle <<'EOF'
           pluginManagement {
@@ -64,8 +64,8 @@ jobs:
                   applicationId 'com.teslalyrics.detector'
                   minSdk 29
                   targetSdk 35
-                  versionCode 13
-                  versionName 'FULLSCAN13'
+                  versionCode 14
+                  versionName 'BRIDGE14'
               }
 
               compileOptions {
@@ -86,22 +86,13 @@ jobs:
                   android:label="Tesla Lyrics Detector"
                   android:theme="@android:style/Theme.Material.Light.NoActionBar">
                   <activity
-                      android:name=".DetectorFocus13Activity"
+                      android:name=".DetectorBridge14Activity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
-                  <service
-                      android:name=".DetectorFocus13Activity$SessionAccessService"
-                      android:label="Tesla Lyrics Detector 媒体读取"
-                      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-                      android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.service.notification.NotificationListenerService" />
-                      </intent-filter>
-                  </service>
               </application>
           </manifest>
           EOF
@@ -126,11 +117,11 @@ jobs:
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-FULLSCAN13.apk
+        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-BRIDGE14.apk
 
       - name: Upload detector APK
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-Detector-FULLSCAN13
-          path: TeslaLyrics-Detector-FULLSCAN13.apk
+          name: TeslaLyrics-Detector-BRIDGE14
+          path: TeslaLyrics-Detector-BRIDGE14.apk
           if-no-files-found: error
