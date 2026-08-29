@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p detector_project/app/src/main/java/com/teslalyrics/detector
-          cp detector/DetectorMainActivity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorMainActivity.java
+          cp detector/DetectorFocus13Activity.java detector_project/app/src/main/java/com/teslalyrics/detector/DetectorFocus13Activity.java
 
           cat > detector_project/settings.gradle <<'EOF'
           pluginManagement {
@@ -64,8 +64,8 @@ jobs:
                   applicationId 'com.teslalyrics.detector'
                   minSdk 29
                   targetSdk 35
-                  versionCode 12
-                  versionName 'FULLSCAN12'
+                  versionCode 13
+                  versionName 'FULLSCAN13'
               }
 
               compileOptions {
@@ -86,7 +86,7 @@ jobs:
                   android:label="Tesla Lyrics Detector"
                   android:theme="@android:style/Theme.Material.Light.NoActionBar">
                   <activity
-                      android:name=".DetectorMainActivity"
+                      android:name=".DetectorFocus13Activity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -94,7 +94,7 @@ jobs:
                       </intent-filter>
                   </activity>
                   <service
-                      android:name=".DetectorMainActivity$SessionAccessService"
+                      android:name=".DetectorFocus13Activity$SessionAccessService"
                       android:label="Tesla Lyrics Detector 媒体读取"
                       android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
                       android:exported="true">
@@ -126,11 +126,11 @@ jobs:
         run: gradle --no-daemon assembleDebug
 
       - name: Rename APK
-        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-FULLSCAN12.apk
+        run: cp detector_project/app/build/outputs/apk/debug/app-debug.apk TeslaLyrics-Detector-FULLSCAN13.apk
 
       - name: Upload detector APK
         uses: actions/upload-artifact@v4
         with:
-          name: TeslaLyrics-Detector-FULLSCAN12
-          path: TeslaLyrics-Detector-FULLSCAN12.apk
+          name: TeslaLyrics-Detector-FULLSCAN13
+          path: TeslaLyrics-Detector-FULLSCAN13.apk
           if-no-files-found: error
