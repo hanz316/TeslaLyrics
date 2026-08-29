@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 public final class MediaSessionMonitor {
     private static final List<String> PREFERRED=Arrays.asList(
@@ -27,6 +28,7 @@ public final class MediaSessionMonitor {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private MediaController current;
     private String currentPackage="";
+    private String lastCustomActionsSig="";
     private boolean started=false;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessionsListener=this::choose;
@@ -39,8 +41,6 @@ public final class MediaSessionMonitor {
         @Override public void run(){
             if(!started)return;
             if(current==null)scan();else publish();
-            // MediaController callbacks handle immediate track/playback changes. This is only a
-            // low-frequency safety scan, so 15 s is plenty and avoids unnecessary cache work.
             handler.postDelayed(this,15000);
         }
     };
@@ -96,6 +96,7 @@ public final class MediaSessionMonitor {
         detach();
         current=best;
         currentPackage=best.getPackageName()==null?"":best.getPackageName();
+        lastCustomActionsSig="";
         try{current.registerCallback(callback,handler);}catch(Exception ignored){}
         state.setMediaConnected(true,currentPackage);
         state.log.add("Player session: "+friendlyName(currentPackage));
@@ -136,6 +137,7 @@ public final class MediaSessionMonitor {
             f.put("MediaMediaId",string(md,MediaMetadata.METADATA_KEY_MEDIA_ID));
             f.put("MediaPlaybackSource",friendlyName(currentPackage));
             if(ps!=null){
+                reportCustomActions(ps);
                 f.put("MediaNowPlayingElapsed",positionNow(ps));
                 int x=ps.getState();
                 if(isActivelyPlaying(x))f.put("MediaPlaybackStatus","Playing");
@@ -147,6 +149,44 @@ public final class MediaSessionMonitor {
             PublicStateRelay.get().publish(f);
             state.setMediaConnected(true,currentPackage);
         }catch(Exception e){state.log.add("Media publish error: "+e.getClass().getSimpleName());}
+    }
+
+    private void reportCustomActions(PlaybackState ps){
+        List<PlaybackState.CustomAction> actions=ps.getCustomActions();
+        StringBuilder sig=new StringBuilder();
+        if(actions!=null)for(PlaybackState.CustomAction a:actions){
+            if(a==null)continue;
+            sig.append(a.getName()).append('=').append(a.getAction()).append(';');
+        }
+        String s=sig.toString();
+        if(s.equals(lastCustomActionsSig))return;
+        lastCustomActionsSig=s;
+        if(s.isEmpty())state.log.add("Media custom actions: none");
+        else state.log.add("Media custom actions: "+s);
+    }
+
+    private boolean tryKaraokeCustomAction(MediaController c,PlaybackState ps){
+        if(ps==null)return false;
+        List<PlaybackState.CustomAction> actions=ps.getCustomActions();
+        if(actions==null||actions.isEmpty())return false;
+        PlaybackState.CustomAction best=null;
+        int bestScore=0;
+        for(PlaybackState.CustomAction a:actions){
+            if(a==null)continue;
+            String name=String.valueOf(a.getName()).toLowerCase(Locale.ROOT);
+            String id=String.valueOf(a.getAction()).toLowerCase(Locale.ROOT);
+            String both=name+' '+id;
+            int score=0;
+            if(both.contains("随心唱"))score=100;
+            else if(both.contains("karaoke"))score=90;
+            else if(both.contains("sing"))score=80;
+            else if(name.contains("唱"))score=70;
+            if(score>bestScore){bestScore=score;best=a;}
+        }
+        if(best==null)return false;
+        c.getTransportControls().sendCustomAction(best,null);
+        state.log.add("Karaoke custom action sent: "+best.getName()+" / "+best.getAction());
+        return true;
     }
 
     public void handleRemoteCommand(JSONObject cmd){
@@ -176,6 +216,14 @@ public final class MediaSessionMonitor {
                 }else if("toggle".equals(action)){
                     boolean playing=ps!=null&&isActivelyPlaying(ps.getState());
                     if(playing)tc.pause();else tc.play();
+                }else if("karaoke".equals(action)){
+                    if(!"com.netease.cloudmusic".equals(currentPackage)){
+                        state.log.add("Karaoke: current player is not NetEase");
+                    }else if(!tryKaraokeCustomAction(c,ps)){
+                        state.log.add("Karaoke: no MediaSession custom action exposed");
+                    }
+                    handler.postDelayed(this::publish,250);
+                    return;
                 }else if("resync".equals(action)){
                     PublicStateRelay.get().forceNext();
                     MultiLyricsFetcher.get().republishLatest();
@@ -208,6 +256,7 @@ public final class MediaSessionMonitor {
         if(current!=null)try{current.unregisterCallback(callback);}catch(Exception ignored){}
         current=null;
         currentPackage="";
+        lastCustomActionsSig="";
     }
 
     private static String text(MediaMetadata m,String key){CharSequence v=m==null?null:m.getText(key);return v==null?"":v.toString().trim();}
