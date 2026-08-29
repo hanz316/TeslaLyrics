@@ -11,7 +11,7 @@ public final class AppState {
     public interface Listener { void onStateChanged(); }
     private static final AppState I=new AppState();
     public static AppState get(){return I;}
-    public final EventLog log=new EventLog(60);
+    public final EventLog log=new EventLog(220);
     private final CopyOnWriteArrayList<Listener> listeners=new CopyOnWriteArrayList<>();
     private TrackMetadata track=new TrackMetadata();
     private List<LyricsLine> lyrics=new ArrayList<>();
@@ -31,7 +31,6 @@ public final class AppState {
     public synchronized void setMediaConnected(boolean v,String pkg){mediaConnected=v;playerPackage=pkg==null?"":pkg;if(v&&(statusMessage.startsWith("等待")||statusMessage.contains("通知使用权")))statusMessage="播放器已连接";fire();}
     public synchronized void setTelemetryConnected(boolean v){setMediaConnected(v,v?"Simulation":"");}
     public synchronized void setOauthOk(boolean v){}
-    // Kept for compatibility with the original local-server code, which is no longer started.
     public synchronized void setLanUrl(String s){lanUrl=s;fire();} public synchronized void setCarClients(int n){carClients=Math.max(0,n);fire();}
     public synchronized void setStatus(String s){statusMessage=s;browserRevision++;fire();}
     public synchronized void setTrackSkeleton(String title){if(title!=null)track.title=title;lyricsLoading=true;lyrics=new ArrayList<>();lyricsSource="";statusMessage="正在加载歌词";browserRevision++;fire();}
