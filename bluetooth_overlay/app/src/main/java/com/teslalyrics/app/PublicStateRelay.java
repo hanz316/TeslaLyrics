@@ -14,7 +14,9 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        NeteaseKaraokeDynamicProbe.get().start(context);
+        // Passive AudioManager reads returned empty on this device. Before attempting any
+        // vendor parameter writes, statically recover NetEase's actual karaoke volume range.
+        NeteaseKaraokeVolumeScanner.scanAsync(context);
         AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
     }
 
