@@ -25,6 +25,7 @@ import android.widget.Toast;
 
 public final class MainActivity extends Activity {
     private static final String TESLA_URL="https://hanz316.github.io/rtcapp/car.html";
+    private static final String BUILD_MARKER="MIXSCAN2";
     private final AppState state=AppState.get();
     private LinearLayout content;
     private TextView homeStatus,rtcStatus,diag,logs,permissionStatus;
@@ -33,6 +34,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle b){
         super.onCreate(b);
         buildUi();
+        state.log.add("BUILD "+BUILD_MARKER);
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},4);
         startCore();
@@ -51,7 +53,7 @@ public final class MainActivity extends Activity {
 
     private void buildUi(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(24,20,24,20);root.setBackgroundColor(Color.rgb(15,15,17));
-        root.addView(txt("TESLA LYRICS",24,true));
+        root.addView(txt("TESLA LYRICS · "+BUILD_MARKER,24,true));
         LinearLayout tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);tabs.addView(tab("首页",0));tabs.addView(tab("诊断",1));root.addView(tabs);
         ScrollView sv=new ScrollView(this);content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);sv.addView(content);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         setContentView(root);showPage(0);
@@ -69,8 +71,6 @@ public final class MainActivity extends Activity {
     }
 
     private void diagnosticsPage(){
-        rowButton("重新开始随心唱动态抓取",()->{NeteaseKaraokeDynamicProbe.get().start(this);Toast.makeText(this,"动态抓取已重新开始",Toast.LENGTH_SHORT).show();refresh();});
-        rowButton("停止随心唱动态抓取",()->{NeteaseKaraokeDynamicProbe.get().stop();refresh();});
         rowButton("刷新诊断",this::refresh);
         rowButton("复制全部诊断",this::copyDiagnostics);
         rowButton("清空歌词缓存",()->{new LyricsDb(this).clearAll();Toast.makeText(this,"缓存已清空",Toast.LENGTH_SHORT).show();});
@@ -80,7 +80,7 @@ public final class MainActivity extends Activity {
     }
 
     private void copyDiagnostics(){
-        String all=state.diagnostics()+"\n\n"+NeteaseKaraokeDynamicProbe.get().report()+"\n\n"+WebRtcBridge.statusReport()+"\n\n最近事件\n"+String.join("\n",state.log.snapshot());
+        String all="Build: "+BUILD_MARKER+"\n"+state.diagnostics()+"\n\n"+WebRtcBridge.statusReport()+"\n\n最近事件\n"+String.join("\n",state.log.snapshot());
         ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
         if(cm!=null){cm.setPrimaryClip(ClipData.newPlainText("TeslaLyrics diagnostics",all));Toast.makeText(this,"全部诊断已复制",Toast.LENGTH_SHORT).show();}
         else Toast.makeText(this,"无法访问剪贴板",Toast.LENGTH_SHORT).show();
@@ -98,10 +98,10 @@ public final class MainActivity extends Activity {
     @SuppressLint("SetTextI18n")
     private void refresh(){
         TrackMetadata t=state.trackCopy();boolean access=hasMediaAccess();
-        if(homeStatus!=null)homeStatus.setText("服务："+state.diagnostics().split("\\n")[0].replace("Service: ","")+"\n播放器："+(state.mediaConnected()?MediaSessionMonitor.friendlyName(state.playerPackage()):"等待连接")+"\n\n当前：\n"+(t.title.isEmpty()?"等待手机播放器播放":t.title)+"\n"+t.artist);
+        if(homeStatus!=null)homeStatus.setText("版本："+BUILD_MARKER+"\n服务："+state.diagnostics().split("\\n")[0].replace("Service: ","")+"\n播放器："+(state.mediaConnected()?MediaSessionMonitor.friendlyName(state.playerPackage()):"等待连接")+"\n\n当前：\n"+(t.title.isEmpty()?"等待手机播放器播放":t.title)+"\n"+t.artist);
         if(permissionStatus!=null)permissionStatus.setText("通知使用权："+(access?"已开启":"未开启")+(access?"\n已可读取手机播放器 MediaSession":"\n请开启，否则无法读取当前歌曲和进度"));
         if(rtcStatus!=null)rtcStatus.setText(WebRtcBridge.statusReport());
-        if(diag!=null)diag.setText(state.diagnostics()+"\n\n"+NeteaseKaraokeDynamicProbe.get().report()+"\n\n"+WebRtcBridge.statusReport());
+        if(diag!=null)diag.setText("Build: "+BUILD_MARKER+"\n"+state.diagnostics()+"\n\n"+WebRtcBridge.statusReport());
         if(logs!=null)logs.setText(String.join("\n",state.log.snapshot()));
     }
 
