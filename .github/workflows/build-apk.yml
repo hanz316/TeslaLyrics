@@ -42,7 +42,7 @@ jobs:
           PY
           unzip -q TeslaLyrics-project.zip -d project
 
-      - name: Apply hardened Bluetooth + relay overlay
+      - name: Apply production overlay and cleanup
         shell: bash
         run: |
           cp -a bluetooth_overlay/app/. project/app/
@@ -59,6 +59,7 @@ jobs:
           python3 tools/patch_lyrics3.py project
           python3 tools/patch_lyrics4.py project
           python3 tools/patch_match4.py project
+          python3 tools/production_cleanup.py project
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
