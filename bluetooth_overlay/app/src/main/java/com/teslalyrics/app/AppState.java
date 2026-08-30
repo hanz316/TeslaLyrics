@@ -24,7 +24,12 @@ public final class AppState {
     public void addListener(Listener l){listeners.addIfAbsent(l);} public void removeListener(Listener l){listeners.remove(l);} private void fire(){for(Listener l:listeners)l.onStateChanged();}
     public synchronized TrackMetadata trackCopy(){return track.copy();}
     public synchronized long elapsedMs(){return playing?Math.max(0,baseElapsedMs+SystemClock.elapsedRealtime()-baseMonoMs):baseElapsedMs;}
-    public synchronized boolean isPlaying(){return playing;} public synchronized boolean mediaConnected(){return mediaConnected;} public synchronized String playerPackage(){return playerPackage;}
+    public synchronized boolean isPlaying(){return playing;}
+    public synchronized boolean serviceRunning(){return serviceRunning;}
+    public synchronized boolean mediaConnected(){return mediaConnected;}
+    public synchronized String playerPackage(){return playerPackage;}
+    public synchronized String lyricsSource(){return lyricsSource;}
+    public synchronized String statusMessage(){return statusMessage;}
     public synchronized long globalOffsetMs(){return globalOffsetMs;} public synchronized long trackOffsetMs(){return trackOffsetMs;} public synchronized long effectiveOffsetMs(){return globalOffsetMs+trackOffsetMs;} public synchronized long browserRevision(){return browserRevision;}
     public synchronized List<LyricsLine> lyricsCopy(){return new ArrayList<>(lyrics);}
     public synchronized void setServiceRunning(boolean v){serviceRunning=v;fire();}
@@ -43,6 +48,6 @@ public final class AppState {
     public synchronized void setPlaying(boolean v){long now=SystemClock.elapsedRealtime();if(playing)baseElapsedMs+=now-baseMonoMs;playing=v;baseMonoMs=now;statusMessage=v?"播放中":"已暂停";fire();}
     public synchronized JSONObject toJson(){JSONObject o=new JSONObject();try{o.put("title",track.title);o.put("artist",track.artist);o.put("album",track.album);o.put("source",track.source);o.put("duration",track.durationMs);o.put("elapsed",elapsedMs());o.put("serverMono",SystemClock.elapsedRealtime());o.put("playing",playing);o.put("globalOffset",globalOffsetMs);o.put("trackOffset",trackOffsetMs);o.put("effectiveOffset",globalOffsetMs+trackOffsetMs);o.put("loading",lyricsLoading);o.put("status",statusMessage);JSONArray a=new JSONArray();for(LyricsLine line:lyrics){JSONObject x=new JSONObject();x.put("t",line.timeMs);x.put("text",line.text);a.put(x);}o.put("lyrics",a);}catch(Exception ignored){}return o;}
     public synchronized JSONObject toTimelineJson(){JSONObject o=new JSONObject();try{o.put("patch",true);o.put("elapsed",elapsedMs());o.put("serverMono",SystemClock.elapsedRealtime());o.put("playing",playing);o.put("effectiveOffset",globalOffsetMs+trackOffsetMs);o.put("status",statusMessage);}catch(Exception ignored){}return o;}
-    public synchronized String diagnostics(){return "Service: "+(serviceRunning?"Running":"Stopped")+"\nMedia session: "+(mediaConnected?"Connected":"Disconnected")+"\nPlayer: "+MediaSessionMonitor.friendlyName(playerPackage)+"\nTrack: "+track.title+" - "+track.artist+"\nPlayer elapsed base: "+baseElapsedMs+" ms\nLocal elapsed: "+elapsedMs()+" ms\nDrift: "+Math.round(lastDriftMs)+" ms\nLyrics source: "+lyricsSource+"\nLyrics lines: "+lyrics.size()+"\nRelay: secure public HTTPS/WSS";}
+    public synchronized String diagnostics(){return "Service: "+(serviceRunning?"Running":"Stopped")+"\nMedia session: "+(mediaConnected?"Connected":"Disconnected")+"\nPlayer: "+MediaSessionMonitor.friendlyName(playerPackage)+"\nTrack: "+track.title+" - "+track.artist+"\nPlayer elapsed base: "+baseElapsedMs+" ms\nLocal elapsed: "+elapsedMs()+" ms\nDrift: "+Math.round(lastDriftMs)+" ms\nLyrics source: "+lyricsSource+"\nLyrics lines: "+lyrics.size()+"\nRelay: secure WSS/MQTT";}
     private static long clamp(long v,long a,long b){return Math.max(a,Math.min(b,v));} private static String nz(String s){return s==null?"":s;}
 }
