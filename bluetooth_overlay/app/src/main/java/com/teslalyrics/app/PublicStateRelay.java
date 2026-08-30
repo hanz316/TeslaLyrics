@@ -14,10 +14,8 @@ public final class PublicStateRelay {
         configured=true;
         lastLyricsTrackKey="";
         WebRtcBridge.get().configure(context);
-        AppState.get().log.add("BUILD CONTROL11LOG");
-        NeteaseControlLab.start(context);
-        NeteaseXCall11Inspector.scanAsync(context);
-        AppState.get().log.add("Transport: secure WSS/MQTT, no ntfy");
+        AppState.get().log.add("Tesla Lyrics production relay started");
+        AppState.get().log.add("Transport: secure WSS/MQTT");
     }
 
     public synchronized void forceNext(){
