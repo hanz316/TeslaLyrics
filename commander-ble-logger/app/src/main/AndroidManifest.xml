@@ -11,8 +11,14 @@
         android:allowBackup="true"
         android:label="Commander BLE Logger"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".IdentifierActivity"
             android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
