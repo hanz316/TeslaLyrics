@@ -87,17 +87,18 @@ public final class LyricsService extends Service implements AppState.Listener {
 
     private void createChannel(){
         NotificationChannel c=new NotificationChannel("tesla_lyrics","Tesla Lyrics",NotificationManager.IMPORTANCE_LOW);
-        c.setDescription("保持播放器状态与 Tesla WebRTC 歌词页面同步");
+        c.setDescription("保持歌曲状态、同步歌词和 Tesla 车机连接");
         getSystemService(NotificationManager.class).createNotificationChannel(c);
     }
 
     private Notification notification(){
         TrackMetadata t=state.trackCopy();
-        String text=(t.title.isEmpty()?"等待手机播放器":t.title+" - "+t.artist)+"  WebRTC";
+        String text=t.title.isEmpty()?"等待手机播放器":t.title+(t.artist.isEmpty()?"":" · "+t.artist);
         PendingIntent pi=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this,"tesla_lyrics")
-                .setContentTitle("Tesla Lyrics · WebRTC")
+                .setContentTitle("Tesla Lyrics · 同步服务运行中")
                 .setContentText(text)
+                .setSubText(WebRtcBridge.isConnected()?"车机已连接":"等待车机连接")
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentIntent(pi)
                 .setOngoing(true)
@@ -116,7 +117,7 @@ public final class LyricsService extends Service implements AppState.Listener {
     private void updateNotificationIfNeeded(){
         if(!foregroundStarted)return;
         TrackMetadata t=state.trackCopy();
-        String key=t.title+"\n"+t.artist;
+        String key=t.title+"\n"+t.artist+"\n"+WebRtcBridge.isConnected();
         if(key.equals(lastNotificationTrack))return;
         lastNotificationTrack=key;
         NotificationManager nm=getSystemService(NotificationManager.class);
