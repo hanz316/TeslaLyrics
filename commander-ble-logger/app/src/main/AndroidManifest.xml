@@ -20,6 +20,11 @@
         <activity
             android:name=".IdentifierActivity"
             android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".SessionCaptureActivity"
+            android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
