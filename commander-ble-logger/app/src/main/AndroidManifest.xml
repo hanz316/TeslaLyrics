@@ -9,7 +9,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Commander BLE Logger"
+        android:label="Commander Read-Only Capture"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
@@ -24,6 +24,11 @@
 
         <activity
             android:name=".SessionCaptureActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
+            android:name=".CommanderAutoCaptureActivity"
             android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
