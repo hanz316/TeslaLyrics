@@ -40,9 +40,9 @@ public final class WebRtcBridge {
                 w.addJavascriptInterface(new Js(),"TeslaLyricsAndroid");
                 w.setWebViewClient(new WebViewClient());
                 web=w;
-                status="正在连接 WSS/MQTT";
-                AppState.get().log.add("Relay page loading");
-                w.loadUrl("https://hanz316.github.io/rtcapp/phone.html?v=1");
+                status="正在连接主/备用 WSS";
+                AppState.get().log.add("Relay page loading (primary + backup)");
+                w.loadUrl("https://hanz316.github.io/rtcapp/phone.html?v=2");
             }catch(Exception e){
                 status="WebView 错误: "+e.getClass().getSimpleName();
                 AppState.get().log.add(status);
@@ -98,7 +98,7 @@ public final class WebRtcBridge {
 
     public static String statusReport(){
         WebRtcBridge x=I;
-        return "Relay: "+x.status+"\nWSS/MQTT: "+(x.connected?"Connected":"Disconnected")+"\nTesla URL: https://hanz316.github.io/rtcapp/car.html";
+        return "Relay: "+x.status+"\nWSS/MQTT 主备: "+(x.connected?"Connected":"Disconnected")+"\nTesla URL: https://hanz316.github.io/rtcapp/car.html";
     }
 
     private final class Js {
