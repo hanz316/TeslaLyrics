@@ -1,4 +1,4 @@
-name: Apply relay and lyrics reliability fix
+name: Apply lyric cache reliability fix
 
 on:
   push:
@@ -15,61 +15,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch lyric cache and relay fallback
+      - name: Patch repeated-track lyric cache
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
           p=Path('bluetooth_overlay/app/src/main/java/com/teslalyrics/app/MultiLyricsFetcher.java')
           s=p.read_text(encoding='utf-8')
           if 'ConcurrentHashMap' not in s:
               s=s.replace('import java.util.concurrent.Callable;','import java.util.concurrent.Callable;\nimport java.util.concurrent.ConcurrentHashMap;',1)
           old='''    private final Set<String> done=Collections.synchronizedSet(new HashSet<>());\n    private final Set<String> loading=Collections.synchronizedSet(new HashSet<>());\n    private volatile String latestKey="",publishedKey="",publishedProvider="",publishedLrc="";'''
           new='''    private final Set<String> done=Collections.synchronizedSet(new HashSet<>());\n    private final Set<String> loading=Collections.synchronizedSet(new HashSet<>());\n    private final ConcurrentHashMap<String,CachedLyrics> cache=new ConcurrentHashMap<>();\n    private volatile String latestKey="",publishedKey="",publishedProvider="",publishedLrc="";'''
-          if old in s: s=s.replace(old,new,1)
+          if old in s:s=s.replace(old,new,1)
           marker='''    private static final class Candidate {\n        String provider,title,artist,lrc;\n        long durationMs;\n        double score;\n        Candidate(String p,String t,String a,long d,String l){provider=p;title=nz(t);artist=nz(a);durationMs=d;lrc=nz(l);}\n    }'''
           if 'private static final class CachedLyrics' not in s:
               s=s.replace(marker,marker+'''\n\n    private static final class CachedLyrics {\n        final String provider,lrc; final int score;\n        CachedLyrics(String p,String l,int s){provider=nz(p);lrc=nz(l);score=s;}\n    }''',1)
           old='''        // The NetEase session can publish title first and its exact song ID a moment later.\n        // If another provider already won, allow one exact-ID upgrade without changing the canonical key.\n        boolean neteaseUpgrade=source.contains("网易云")&&!mediaId.isEmpty()&&key.equals(publishedKey)&&!publishedProvider.contains("网易云");\n        if(done.contains(key)&&!neteaseUpgrade)return;\n        if(!loading.add(key))return;'''
-          new='''        // A successful match must remain reusable when the same song comes back later.\n        // Previously `done` remembered only the key while the actual LRC kept only the last track,\n        // so revisiting an older song could be skipped and leave the car with no lyrics.\n        CachedLyrics cached=cache.get(key);\n        boolean neteaseUpgrade=source.contains("网易云")&&!mediaId.isEmpty()&&\n                ((cached!=null&&!cached.provider.contains("网易云"))||\n                 (key.equals(publishedKey)&&!publishedProvider.contains("网易云")));\n        if(cached!=null){\n            publishedKey=key;publishedProvider=cached.provider;publishedLrc=cached.lrc;publishedScore=cached.score;\n            AppState.get().log.add("Lyrics cache hit: "+cached.provider+" score="+cached.score);\n            PublicStateRelay.get().publishLyrics(key,cached.provider,cached.lrc,cached.score);\n            if(!neteaseUpgrade)return;\n        }\n        if(done.contains(key)&&!neteaseUpgrade)return;\n        if(!loading.add(key))return;'''
-          if old not in s: raise SystemExit('ensure marker missing')
+          new='''        CachedLyrics cached=cache.get(key);\n        boolean neteaseUpgrade=source.contains("网易云")&&!mediaId.isEmpty()&&\n                ((cached!=null&&!cached.provider.contains("网易云"))||\n                 (key.equals(publishedKey)&&!publishedProvider.contains("网易云")));\n        if(cached!=null){\n            publishedKey=key;publishedProvider=cached.provider;publishedLrc=cached.lrc;publishedScore=cached.score;\n            AppState.get().log.add("Lyrics cache hit: "+cached.provider+" score="+cached.score);\n            PublicStateRelay.get().publishLyrics(key,cached.provider,cached.lrc,cached.score);\n            if(!neteaseUpgrade)return;\n        }\n        if(done.contains(key)&&!neteaseUpgrade)return;\n        if(!loading.add(key))return;'''
+          if old not in s:raise SystemExit('ensure marker missing')
           s=s.replace(old,new,1)
           old='''    public void republishLatest(){\n        String key=publishedKey,lrc=publishedLrc,provider=publishedProvider;\n        int score=publishedScore;\n        if(!key.isEmpty()&&key.equals(latestKey)&&validLrc(lrc))PublicStateRelay.get().publishLyrics(key,provider,lrc,score);\n    }'''
-          new='''    public void republishLatest(){\n        String key=publishedKey,lrc=publishedLrc,provider=publishedProvider;\n        int score=publishedScore;\n        if(!key.isEmpty()&&key.equals(latestKey)&&validLrc(lrc)){\n            PublicStateRelay.get().publishLyrics(key,provider,lrc,score);\n            return;\n        }\n        CachedLyrics cached=cache.get(latestKey);\n        if(cached!=null&&validLrc(cached.lrc)){\n            publishedKey=latestKey;publishedProvider=cached.provider;publishedLrc=cached.lrc;publishedScore=cached.score;\n            PublicStateRelay.get().publishLyrics(latestKey,cached.provider,cached.lrc,cached.score);\n        }\n    }'''
-          if old not in s: raise SystemExit('republish marker missing')
+          new='''    public void republishLatest(){\n        String key=publishedKey,lrc=publishedLrc,provider=publishedProvider;\n        int score=publishedScore;\n        if(!key.isEmpty()&&key.equals(latestKey)&&validLrc(lrc)){\n            PublicStateRelay.get().publishLyrics(key,provider,lrc,score);return;\n        }\n        CachedLyrics cached=cache.get(latestKey);\n        if(cached!=null&&validLrc(cached.lrc)){\n            publishedKey=latestKey;publishedProvider=cached.provider;publishedLrc=cached.lrc;publishedScore=cached.score;\n            PublicStateRelay.get().publishLyrics(latestKey,cached.provider,cached.lrc,cached.score);\n        }\n    }'''
+          if old not in s:raise SystemExit('republish marker missing')
           s=s.replace(old,new,1)
           old='''                rememberDone(key);\n                publishedKey=key;publishedProvider=best.provider;publishedLrc=best.lrc;publishedScore=(int)Math.round(best.score);\n                AppState.get().log.add("Lyrics matched: "+best.provider+" score="+publishedScore);'''
           new='''                rememberDone(key);\n                publishedKey=key;publishedProvider=best.provider;publishedLrc=best.lrc;publishedScore=(int)Math.round(best.score);\n                cache.put(key,new CachedLyrics(publishedProvider,publishedLrc,publishedScore));\n                AppState.get().log.add("Lyrics matched: "+best.provider+" score="+publishedScore);'''
-          if old not in s: raise SystemExit('cache store marker missing')
+          if old not in s:raise SystemExit('store marker missing')
           s=s.replace(old,new,1)
           old='''            if(done.size()>MAX_DONE){Iterator<String> it=done.iterator();while(done.size()>MAX_DONE&&it.hasNext()){it.next();it.remove();}}'''
-          new='''            if(done.size()>MAX_DONE){Iterator<String> it=done.iterator();while(done.size()>MAX_DONE&&it.hasNext()){String old=it.next();it.remove();cache.remove(old);}}'''
-          if old in s: s=s.replace(old,new,1)
-          p.write_text(s,encoding='utf-8')
-
-          p=Path('bluetooth_overlay/app/src/main/java/com/teslalyrics/app/WebRtcBridge.java')
-          s=p.read_text(encoding='utf-8')
-          if 'WebResourceError' not in s:
-              s=s.replace('import android.webkit.WebSettings;','import android.webkit.WebSettings;\nimport android.webkit.WebResourceError;\nimport android.webkit.WebResourceRequest;\nimport android.webkit.WebResourceResponse;',1)
-          s=s.replace('''    private volatile boolean ready=false,connected=false;\n    private volatile String status="未启动";''','''    private volatile boolean ready=false,connected=false,usingBackupPage=false;\n    private volatile String status="未启动";\n    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=4";\n    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=4";''',1)
-          old='''                w.addJavascriptInterface(new Js(),"TeslaLyricsAndroid");\n                w.setWebViewClient(new WebViewClient());\n                web=w;\n                status="正在连接 WSS/MQTT";\n                AppState.get().log.add("Relay page loading");\n                w.loadUrl("https://hanz316.github.io/rtcapp/phone.html?v=1");'''
-          new='''                w.addJavascriptInterface(new Js(),"TeslaLyricsAndroid");\n                w.setWebViewClient(new WebViewClient(){\n                    private void fallback(WebView view,String why){\n                        if(usingBackupPage)return;\n                        usingBackupPage=true;ready=false;connected=false;\n                        status="主网页不可达，切换备用网页";\n                        AppState.get().log.add("Relay page fallback: "+why);\n                        view.stopLoading();\n                        view.loadUrl(BACKUP_PAGE);\n                    }\n                    @Override public void onReceivedError(WebView view,WebResourceRequest req,WebResourceError err){\n                        if(req!=null&&req.isForMainFrame())fallback(view,"network");\n                    }\n                    @Override public void onReceivedHttpError(WebView view,WebResourceRequest req,WebResourceResponse res){\n                        if(req!=null&&req.isForMainFrame()&&res!=null&&res.getStatusCode()>=400)fallback(view,"HTTP "+res.getStatusCode());\n                    }\n                });\n                web=w;usingBackupPage=false;\n                status="正在连接主网页";\n                AppState.get().log.add("Relay page loading: primary");\n                w.loadUrl(PRIMARY_PAGE);\n                main.postDelayed(()->{\n                    if(web==w&&!ready&&!usingBackupPage){\n                        usingBackupPage=true;connected=false;\n                        status="主网页超时，切换备用网页";\n                        AppState.get().log.add("Relay page fallback: timeout");\n                        try{w.stopLoading();w.loadUrl(BACKUP_PAGE);}catch(Exception ignored){}\n                    }\n                },8000);'''
-          if old not in s: raise SystemExit('webview marker missing')
-          s=s.replace(old,new,1)
-          old='''            o.put("score",score);\n            o.put("lrc",lrc==null?"":lrc);'''
-          new='''            o.put("score",score);\n            o.put("lrc",lrc==null?"":lrc);\n            o.put("sentAtMs",System.currentTimeMillis());'''
-          if old not in s: raise SystemExit('lyrics timestamp marker missing')
-          s=s.replace(old,new,1)
+          new='''            if(done.size()>MAX_DONE){Iterator<String> it=done.iterator();while(done.size()>MAX_DONE&&it.hasNext()){String oldKey=it.next();it.remove();cache.remove(oldKey);}}'''
+          if old in s:s=s.replace(old,new,1)
           p.write_text(s,encoding='utf-8')
           PY
-      - name: Commit reliability fix
+      - name: Commit lyric cache fix
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add bluetooth_overlay/app/src/main/java/com/teslalyrics/app/MultiLyricsFetcher.java bluetooth_overlay/app/src/main/java/com/teslalyrics/app/WebRtcBridge.java
-          git commit -m 'Fix repeated-track lyric cache and relay page fallback'
+          git add bluetooth_overlay/app/src/main/java/com/teslalyrics/app/MultiLyricsFetcher.java
+          git commit -m 'Cache matched lyrics per track for reliable revisits'
           git push
