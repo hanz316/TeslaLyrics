@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -39,6 +40,7 @@ public final class MultiLyricsFetcher {
     private final ExecutorService providerPool=Executors.newFixedThreadPool(6);
     private final Set<String> done=Collections.synchronizedSet(new HashSet<>());
     private final Set<String> loading=Collections.synchronizedSet(new HashSet<>());
+    private final ConcurrentHashMap<String,CachedLyrics> cache=new ConcurrentHashMap<>();
     private volatile String latestKey="",publishedKey="",publishedProvider="",publishedLrc="";
     private volatile int publishedScore=0;
     private static final int MAX_DONE=96;
@@ -55,6 +57,11 @@ public final class MultiLyricsFetcher {
         Candidate(String p,String t,String a,long d,String l){provider=p;title=nz(t);artist=nz(a);durationMs=d;lrc=nz(l);}
     }
 
+    private static final class CachedLyrics {
+        final String provider,lrc; final int score;
+        CachedLyrics(String p,String l,int s){provider=nz(p);lrc=nz(l);score=s;}
+    }
+
     public void ensure(JSONObject f){
         String title=f.optString("MediaNowPlayingTitle","").trim();
         if(title.isEmpty())return;
@@ -66,9 +73,16 @@ public final class MultiLyricsFetcher {
         String key=title+"|"+artist+"|"+album+"|"+duration;
         latestKey=key;
 
-        // The NetEase session can publish title first and its exact song ID a moment later.
-        // If another provider already won, allow one exact-ID upgrade without changing the canonical key.
-        boolean neteaseUpgrade=source.contains("网易云")&&!mediaId.isEmpty()&&key.equals(publishedKey)&&!publishedProvider.contains("网易云");
+        CachedLyrics cached=cache.get(key);
+        boolean neteaseUpgrade=source.contains("网易云")&&!mediaId.isEmpty()&&
+                ((cached!=null&&!cached.provider.contains("网易云"))||
+                 (key.equals(publishedKey)&&!publishedProvider.contains("网易云")));
+        if(cached!=null){
+            publishedKey=key;publishedProvider=cached.provider;publishedLrc=cached.lrc;publishedScore=cached.score;
+            AppState.get().log.add("Lyrics cache hit: "+cached.provider+" score="+cached.score);
+            PublicStateRelay.get().publishLyrics(key,cached.provider,cached.lrc,cached.score);
+            if(!neteaseUpgrade)return;
+        }
         if(done.contains(key)&&!neteaseUpgrade)return;
         if(!loading.add(key))return;
         trackPool.execute(()->fetch(key,title,artist,album,duration,source,mediaId));
@@ -78,7 +92,14 @@ public final class MultiLyricsFetcher {
     public void republishLatest(){
         String key=publishedKey,lrc=publishedLrc,provider=publishedProvider;
         int score=publishedScore;
-        if(!key.isEmpty()&&key.equals(latestKey)&&validLrc(lrc))PublicStateRelay.get().publishLyrics(key,provider,lrc,score);
+        if(!key.isEmpty()&&key.equals(latestKey)&&validLrc(lrc)){
+            PublicStateRelay.get().publishLyrics(key,provider,lrc,score);return;
+        }
+        CachedLyrics cached=cache.get(latestKey);
+        if(cached!=null&&validLrc(cached.lrc)){
+            publishedKey=latestKey;publishedProvider=cached.provider;publishedLrc=cached.lrc;publishedScore=cached.score;
+            PublicStateRelay.get().publishLyrics(latestKey,cached.provider,cached.lrc,cached.score);
+        }
     }
 
     private void fetch(String key,String title,String artist,String album,long duration,String playerSource,String mediaId){
@@ -105,6 +126,7 @@ public final class MultiLyricsFetcher {
             if(best!=null&&best.score>=78&&validLrc(best.lrc)){
                 rememberDone(key);
                 publishedKey=key;publishedProvider=best.provider;publishedLrc=best.lrc;publishedScore=(int)Math.round(best.score);
+                cache.put(key,new CachedLyrics(publishedProvider,publishedLrc,publishedScore));
                 AppState.get().log.add("Lyrics matched: "+best.provider+" score="+publishedScore);
                 PublicStateRelay.get().publishLyrics(key,best.provider,best.lrc,publishedScore);
             }else AppState.get().log.add("Lyrics multi-source: no safe match"+(best==null?"":" best="+best.provider+" "+Math.round(best.score)));
@@ -114,7 +136,7 @@ public final class MultiLyricsFetcher {
     private void rememberDone(String key){
         synchronized(done){
             done.add(key);
-            if(done.size()>MAX_DONE){Iterator<String> it=done.iterator();while(done.size()>MAX_DONE&&it.hasNext()){it.next();it.remove();}}
+            if(done.size()>MAX_DONE){Iterator<String> it=done.iterator();while(done.size()>MAX_DONE&&it.hasNext()){String oldKey=it.next();it.remove();cache.remove(oldKey);}}
         }
     }
 
