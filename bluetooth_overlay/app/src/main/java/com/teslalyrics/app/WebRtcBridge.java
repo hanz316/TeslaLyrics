@@ -19,7 +19,7 @@ public final class WebRtcBridge {
     public static WebRtcBridge get(){return I;}
 
     private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=4";
-    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=4";
+    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@7209b81a3145cc4e94334a883584c05ea56f55e7/rtcapp/phone.html";
 
     private final Handler main=new Handler(Looper.getMainLooper());
     private volatile MediaSessionMonitor media;
@@ -133,7 +133,7 @@ public final class WebRtcBridge {
 
     public static String statusReport(){
         WebRtcBridge x=I;
-        return "Relay: "+x.status+"\nWSS/MQTT 主备: "+(x.connected?"Connected":"Disconnected")+"\nTesla 主站: https://hanz316.github.io/rtcapp/car.html\nTesla 备用: https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/car.html";
+        return "Relay: "+x.status+"\nWSS/MQTT 主备: "+(x.connected?"Connected":"Disconnected")+"\nTesla 主站: https://hanz316.github.io/rtcapp/car.html\nTesla 备用: https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@7209b81a3145cc4e94334a883584c05ea56f55e7/rtcapp/car.html";
     }
 
     private final class Js {
