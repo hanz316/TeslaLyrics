@@ -5,6 +5,9 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -15,10 +18,13 @@ public final class WebRtcBridge {
     private static final WebRtcBridge I=new WebRtcBridge();
     public static WebRtcBridge get(){return I;}
 
+    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=4";
+    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=4";
+
     private final Handler main=new Handler(Looper.getMainLooper());
     private volatile MediaSessionMonitor media;
     private volatile WebView web;
-    private volatile boolean ready=false,connected=false;
+    private volatile boolean ready=false,connected=false,usingBackupPage=false;
     private volatile String status="未启动";
     private volatile JSONObject latestState=null,latestLyrics=null;
 
@@ -38,11 +44,39 @@ public final class WebRtcBridge {
                 s.setMediaPlaybackRequiresUserGesture(false);
                 s.setCacheMode(WebSettings.LOAD_NO_CACHE);
                 w.addJavascriptInterface(new Js(),"TeslaLyricsAndroid");
-                w.setWebViewClient(new WebViewClient());
+                w.setWebViewClient(new WebViewClient(){
+                    private void fallback(WebView view,String why){
+                        if(usingBackupPage)return;
+                        usingBackupPage=true;
+                        ready=false;
+                        connected=false;
+                        status="主网页不可达，切换备用网页";
+                        AppState.get().log.add("Relay page fallback: "+why);
+                        try{view.stopLoading();view.loadUrl(BACKUP_PAGE);}catch(Exception ignored){}
+                    }
+                    @Override public void onReceivedError(WebView view,WebResourceRequest request,WebResourceError error){
+                        if(request!=null&&request.isForMainFrame())fallback(view,"network");
+                    }
+                    @Override public void onReceivedHttpError(WebView view,WebResourceRequest request,WebResourceResponse response){
+                        if(request!=null&&request.isForMainFrame()&&response!=null&&response.getStatusCode()>=400){
+                            fallback(view,"HTTP "+response.getStatusCode());
+                        }
+                    }
+                });
                 web=w;
-                status="正在连接主/备用 WSS";
-                AppState.get().log.add("Relay page loading (primary + backup)");
-                w.loadUrl("https://hanz316.github.io/rtcapp/phone.html?v=2");
+                usingBackupPage=false;
+                status="正在连接主网页";
+                AppState.get().log.add("Relay page loading: primary");
+                w.loadUrl(PRIMARY_PAGE);
+                main.postDelayed(()->{
+                    if(web==w&&!ready&&!usingBackupPage){
+                        usingBackupPage=true;
+                        connected=false;
+                        status="主网页超时，切换备用网页";
+                        AppState.get().log.add("Relay page fallback: timeout");
+                        try{w.stopLoading();w.loadUrl(BACKUP_PAGE);}catch(Exception ignored){}
+                    }
+                },8000);
             }catch(Exception e){
                 status="WebView 错误: "+e.getClass().getSimpleName();
                 AppState.get().log.add(status);
@@ -68,6 +102,7 @@ public final class WebRtcBridge {
             o.put("provider",provider==null?"":provider);
             o.put("score",score);
             o.put("lrc",lrc==null?"":lrc);
+            o.put("sentAtMs",System.currentTimeMillis());
             latestLyrics=o;
             push(o);
         }catch(Exception ignored){}
@@ -98,13 +133,14 @@ public final class WebRtcBridge {
 
     public static String statusReport(){
         WebRtcBridge x=I;
-        return "Relay: "+x.status+"\nWSS/MQTT 主备: "+(x.connected?"Connected":"Disconnected")+"\nTesla URL: https://hanz316.github.io/rtcapp/car.html";
+        return "Relay: "+x.status+"\nWSS/MQTT 主备: "+(x.connected?"Connected":"Disconnected")+"\nTesla 主站: https://hanz316.github.io/rtcapp/car.html\nTesla 备用: https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/car.html";
     }
 
     private final class Js {
         @JavascriptInterface public void onReady(){
-            ready=true;status="中继页面已就绪";
-            AppState.get().log.add("Relay page ready");
+            ready=true;
+            status=usingBackupPage?"备用网页已就绪":"主网页已就绪";
+            AppState.get().log.add("Relay page ready: "+(usingBackupPage?"backup":"primary"));
             replay();
         }
         @JavascriptInterface public void onConnected(){
