@@ -1,4 +1,5 @@
 name: Build TeslaLyrics Hardened APK
+# Reliability release: dual relay page fallback + per-track lyric cache
 
 on:
   push:
