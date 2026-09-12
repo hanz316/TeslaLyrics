@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import sys
+import re, sys
 
 root = Path(sys.argv[1] if len(sys.argv) > 1 else 'project')
 
@@ -99,18 +99,19 @@ if s == orig:
     raise SystemExit('v17 patch: MediaSessionMonitor unchanged')
 p.write_text(s)
 
-# --- WebView relay cache bust: always load the v17 phone relay rather than a previously
-# cached query variant. The page itself carries the transport implementation. ---
+# --- WebView relay cache bust: version-agnostic replacement because reconstructed
+# source packages can contain different historical query versions. ---
 p = root / 'app/src/main/java/com/teslalyrics/app/WebRtcBridge.java'
 s = p.read_text()
 orig = s
-s = s.replace('phone.html?v=10', 'phone.html?v=17')
-s = s.replace('Relay page loading: primary v10', 'Relay page loading: primary v17')
-s = s.replace('Relay page ready v10:', 'Relay page ready v17:')
-s = s.replace('Tesla relay MQTT connected v10', 'Tesla relay MQTT connected v17')
-s = s.replace('Transport v10:', 'Transport v17:')
-if s == orig:
-    raise SystemExit('v17 patch: WebRtcBridge unchanged')
-p.write_text(s)
+s = re.sub(r'phone\.html\?v=\d+', 'phone.html?v=17', s)
+s = re.sub(r'Relay page loading: primary v\d+', 'Relay page loading: primary v17', s)
+s = re.sub(r'Relay page ready v\d+:', 'Relay page ready v17:', s)
+s = re.sub(r'Tesla relay MQTT connected v\d+', 'Tesla relay MQTT connected v17', s)
+s = re.sub(r'Transport v\d+:', 'Transport v17:', s)
+if s != orig:
+    p.write_text(s)
+else:
+    print('v17 patch: WebRtcBridge already current or no legacy version marker')
 
 print('patch_v17_stale applied')
