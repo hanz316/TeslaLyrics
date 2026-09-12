@@ -18,11 +18,11 @@ public final class WebRtcBridge {
     private static final WebRtcBridge I=new WebRtcBridge();
     public static WebRtcBridge get(){return I;}
 
-    // v7 keeps HiveMQ + Eclipse Mosquitto in parallel, with stricter MQTT-compatible
-    // client IDs and faster reconnects for the older Tesla browser/network stack.
-    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=7";
-    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=7";
-    private static final long PAGE_FALLBACK_MS=2000L;
+    // v8 routes both independent MQTT-over-WebSocket lines through standard TLS port 443.
+    // This is substantially friendlier to the older Tesla browser/network stack than 8081/8884.
+    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=8";
+    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=8";
+    private static final long PAGE_FALLBACK_MS=1800L;
 
     private final Handler main=new Handler(Looper.getMainLooper());
     private volatile MediaSessionMonitor media;
@@ -136,7 +136,7 @@ public final class WebRtcBridge {
 
     public static String statusReport(){
         WebRtcBridge x=I;
-        return "Relay: "+x.status+"\nWSS/MQTT: HiveMQ + Mosquitto 双线路并行\n状态: "+(x.connected?"Connected":"Disconnected")+"\nTesla 主站: https://hanz316.github.io/rtcapp/car.html\nTesla 备用: https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/car.html";
+        return "Relay: "+x.status+"\nWSS/MQTT: Eclipse 443 + TBMQ 443 双线路并行\n状态: "+(x.connected?"Connected":"Disconnected")+"\nTesla v8: https://hanz316.github.io/rtcapp/car8.html";
     }
 
     private final class Js {
