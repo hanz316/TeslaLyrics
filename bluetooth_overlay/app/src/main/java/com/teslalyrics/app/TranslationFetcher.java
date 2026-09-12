@@ -4,7 +4,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -24,7 +23,7 @@ import okhttp3.Response;
 
 /**
  * Fetches synced translation / romaji once per track, caches it, and publishes a
- * merged multi-line LRC through the existing lyrics transport.  No per-line
+ * merged multi-line LRC through the existing lyrics transport. No per-line
  * network traffic is generated: the Tesla page advances locally from timestamps.
  */
 public final class TranslationFetcher {
@@ -97,8 +96,6 @@ public final class TranslationFetcher {
                 cache.put(trackKey, x);
                 if(cache.size() > 96) cache.clear();
                 publish(trackKey, x, false);
-                // Multi-source base lyrics can finish a little later; republish once after
-                // its 9.5 s provider window so translated lyrics remain the latest replay.
                 delayed.schedule(() -> {
                     if(trackKey.equals(latestKey)) publish(trackKey, x, true);
                 }, 10500, TimeUnit.MILLISECONDS);
@@ -266,6 +263,6 @@ public final class TranslationFetcher {
         return b.toString();
     }
     private static String extractId(String raw){ Matcher m=ID.matcher(nz(raw)); return m.find()?m.group(1):""; }
-    private static String enc(String s){ return URLEncoder.encode(nz(s), StandardCharsets.UTF_8); }
+    private static String enc(String s){ try{return URLEncoder.encode(nz(s),"UTF-8");}catch(Exception e){return "";} }
     private static String nz(String s){ return s==null?"":s; }
 }
