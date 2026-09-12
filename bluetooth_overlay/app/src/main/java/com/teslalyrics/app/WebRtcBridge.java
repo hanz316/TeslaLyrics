@@ -18,8 +18,11 @@ public final class WebRtcBridge {
     private static final WebRtcBridge I=new WebRtcBridge();
     public static WebRtcBridge get(){return I;}
 
-    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=4";
-    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@7209b81a3145cc4e94334a883584c05ea56f55e7/rtcapp/phone.html";
+    // GitHub Pages is currently unreliable for this app, so use the pinned jsDelivr
+    // revision as the primary relay page. Keep GitHub Pages only as a fast fallback.
+    private static final String PRIMARY_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@7209b81a3145cc4e94334a883584c05ea56f55e7/rtcapp/phone.html";
+    private static final String BACKUP_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=4";
+    private static final long PAGE_FALLBACK_MS=2500L;
 
     private final Handler main=new Handler(Looper.getMainLooper());
     private volatile MediaSessionMonitor media;
@@ -50,7 +53,7 @@ public final class WebRtcBridge {
                         usingBackupPage=true;
                         ready=false;
                         connected=false;
-                        status="主网页不可达，切换备用网页";
+                        status="主网页不可达，快速切换备用网页";
                         AppState.get().log.add("Relay page fallback: "+why);
                         try{view.stopLoading();view.loadUrl(BACKUP_PAGE);}catch(Exception ignored){}
                     }
@@ -72,11 +75,11 @@ public final class WebRtcBridge {
                     if(web==w&&!ready&&!usingBackupPage){
                         usingBackupPage=true;
                         connected=false;
-                        status="主网页超时，切换备用网页";
+                        status="主网页超时，快速切换备用网页";
                         AppState.get().log.add("Relay page fallback: timeout");
                         try{w.stopLoading();w.loadUrl(BACKUP_PAGE);}catch(Exception ignored){}
                     }
-                },8000);
+                },PAGE_FALLBACK_MS);
             }catch(Exception e){
                 status="WebView 错误: "+e.getClass().getSimpleName();
                 AppState.get().log.add(status);
@@ -133,7 +136,7 @@ public final class WebRtcBridge {
 
     public static String statusReport(){
         WebRtcBridge x=I;
-        return "Relay: "+x.status+"\nWSS/MQTT 主备: "+(x.connected?"Connected":"Disconnected")+"\nTesla 主站: https://hanz316.github.io/rtcapp/car.html\nTesla 备用: https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@7209b81a3145cc4e94334a883584c05ea56f55e7/rtcapp/car.html";
+        return "Relay: "+x.status+"\nWSS/MQTT 主备: "+(x.connected?"Connected":"Disconnected")+"\nTesla 主站: https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@7209b81a3145cc4e94334a883584c05ea56f55e7/rtcapp/car.html\nTesla 备用: https://hanz316.github.io/rtcapp/car.html";
     }
 
     private final class Js {
