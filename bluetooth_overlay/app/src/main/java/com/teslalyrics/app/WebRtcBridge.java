@@ -18,10 +18,10 @@ public final class WebRtcBridge {
     private static final WebRtcBridge I=new WebRtcBridge();
     public static WebRtcBridge get(){return I;}
 
-    // v9 uses the currently documented TBMQ WSS/443 endpoint as primary and
-    // independently operated HiveMQ WSS as fallback. Page hosting still has its own fallback.
-    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=9";
-    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=9";
+    // v10 keeps MQTT for normal browsers and adds a standard HTTPS/SSE compatibility
+    // transport specifically for Tesla browsers that can load HTTPS but fail WSS handshakes.
+    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=10";
+    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=10";
     private static final long PAGE_FALLBACK_MS=1800L;
 
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -69,7 +69,7 @@ public final class WebRtcBridge {
                 web=w;
                 usingBackupPage=false;
                 status="正在连接主网页";
-                AppState.get().log.add("Relay page loading: primary v9");
+                AppState.get().log.add("Relay page loading: primary v10");
                 w.loadUrl(PRIMARY_PAGE);
                 main.postDelayed(()->{
                     if(web==w&&!ready&&!usingBackupPage){
@@ -136,24 +136,24 @@ public final class WebRtcBridge {
 
     public static String statusReport(){
         WebRtcBridge x=I;
-        return "Relay: "+x.status+"\nWSS/MQTT v9: TBMQ 443 + HiveMQ 8884 双线路并行\n状态: "+(x.connected?"Connected":"Disconnected")+"\nTesla: https://hanz316.github.io/rtcapp/car.html";
+        return "Relay: "+x.status+"\nTransport v10: MQTT + HTTPS/SSE Tesla compatibility fallback\n状态: "+(x.connected?"Connected":"Ready")+"\nTesla: https://hanz316.github.io/rtcapp/car.html";
     }
 
     private final class Js {
         @JavascriptInterface public void onReady(){
             ready=true;
             status=usingBackupPage?"备用网页已就绪":"主网页已就绪";
-            AppState.get().log.add("Relay page ready: "+(usingBackupPage?"backup":"primary"));
+            AppState.get().log.add("Relay page ready v10: "+(usingBackupPage?"backup":"primary"));
             replay();
         }
         @JavascriptInterface public void onConnected(){
-            connected=true;status="车机已连接";
-            AppState.get().log.add("Tesla relay connected v9");
+            connected=true;status="MQTT线路已连接 · HTTPS兼容线路备用";
+            AppState.get().log.add("Tesla relay MQTT connected v10");
             replay();
         }
         @JavascriptInterface public void onDisconnected(){
-            connected=false;status="等待车机连接";
-            AppState.get().log.add("Tesla relay disconnected");
+            connected=false;status="HTTPS兼容线路可用";
+            AppState.get().log.add("MQTT disconnected; HTTPS fallback remains available");
         }
         @JavascriptInterface public void onStatus(String s){
             status=s==null?"":s;
