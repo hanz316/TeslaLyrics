@@ -18,11 +18,11 @@ public final class WebRtcBridge {
     private static final WebRtcBridge I=new WebRtcBridge();
     public static WebRtcBridge get(){return I;}
 
-    // v6 uses two independent WSS brokers in parallel: HiveMQ + Eclipse Mosquitto.
-    // Page hosting itself also keeps a GitHub Pages -> jsDelivr fallback.
-    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=6";
-    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=6";
-    private static final long PAGE_FALLBACK_MS=2500L;
+    // v7 keeps HiveMQ + Eclipse Mosquitto in parallel, with stricter MQTT-compatible
+    // client IDs and faster reconnects for the older Tesla browser/network stack.
+    private static final String PRIMARY_PAGE="https://hanz316.github.io/rtcapp/phone.html?v=7";
+    private static final String BACKUP_PAGE="https://cdn.jsdelivr.net/gh/hanz316/hanz316.github.io@main/rtcapp/phone.html?v=7";
+    private static final long PAGE_FALLBACK_MS=2000L;
 
     private final Handler main=new Handler(Looper.getMainLooper());
     private volatile MediaSessionMonitor media;
