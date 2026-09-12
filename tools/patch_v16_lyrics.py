@@ -43,6 +43,17 @@ s = s.replace(old_meta, new_meta)
 s = s.replace('best.score>=78', 'best.score>=72')
 
 if s == orig:
-    raise SystemExit('v16 patch made no changes')
+    raise SystemExit('v16 patch made no lyric changes')
 p.write_text(s)
+
+# Cache-bust the hidden Android relay page so every v16 APK loads the self-healing heartbeat
+# transport rather than a stale v10 copy from browser/CDN cache.
+b = root / 'app/src/main/java/com/teslalyrics/app/WebRtcBridge.java'
+bs = b.read_text()
+bs2 = bs.replace('phone.html?v=10', 'phone.html?v=16')
+bs2 = bs2.replace('primary v10', 'primary v16').replace('ready v10', 'ready v16').replace('connected v10', 'connected v16')
+bs2 = bs2.replace('Transport v10:', 'Transport v16:')
+if bs2 == bs:
+    raise SystemExit('v16 patch: WebRtcBridge version markers not found')
+b.write_text(bs2)
 print('patch_v16_lyrics applied')
