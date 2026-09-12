@@ -55,12 +55,13 @@ public final class PublicStateRelay {
 
         // Do not make lyric lookup a one-shot operation. MediaSession metadata (especially
         // NetEase's exact song id) can arrive after title/artist, and a provider can fail
-        // transiently. MultiLyricsFetcher already de-duplicates successful/loading tracks,
-        // so it is safe to retry periodically and immediately when a late media id appears.
+        // transiently. Both fetchers cache successful results, so retries do not create
+        // per-line network traffic.
         if(trackChanged||mediaIdArrived||retryDue){
             if(mediaIdArrived)lastMediaId=mediaId;
             lastLyricsEnsureAt=now;
             MultiLyricsFetcher.get().ensure(f);
+            TranslationFetcher.get().ensure(f,lyricsTrackKey);
         }
 
         try{
