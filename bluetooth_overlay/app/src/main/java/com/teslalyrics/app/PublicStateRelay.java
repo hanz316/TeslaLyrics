@@ -35,6 +35,7 @@ public final class PublicStateRelay {
         if(title.isEmpty())return;
         String artist=f.optString("MediaNowPlayingArtist","");
         String album=f.optString("MediaNowPlayingAlbum","");
+        String source=f.optString("MediaPlaybackSource","");
         long duration=Math.max(0,f.optLong("MediaNowPlayingDuration",0));
         long elapsed=Math.max(0,f.optLong("MediaNowPlayingElapsed",0));
         String status=f.optString("MediaPlaybackStatus","Paused");
@@ -61,7 +62,11 @@ public final class PublicStateRelay {
             if(mediaIdArrived)lastMediaId=mediaId;
             lastLyricsEnsureAt=now;
             MultiLyricsFetcher.get().ensure(f);
-            TranslationFetcher.get().ensure(f,lyricsTrackKey);
+            JSONObject translationFrame=f;
+            if(!(source.contains("网易云")||source.toLowerCase(java.util.Locale.ROOT).contains("netease"))){
+                try{translationFrame=new JSONObject(f.toString());translationFrame.remove("MediaMediaId");}catch(Exception ignored){}
+            }
+            TranslationFetcher.get().ensure(translationFrame,lyricsTrackKey);
         }
 
         try{
@@ -70,7 +75,7 @@ public final class PublicStateRelay {
             o.put("title",title);
             o.put("artist",artist);
             o.put("album",album);
-            o.put("source",f.optString("MediaPlaybackSource",""));
+            o.put("source",source);
             o.put("duration",duration);
             o.put("elapsed",elapsed);
             o.put("playing",playing);
