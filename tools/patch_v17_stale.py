@@ -54,15 +54,19 @@ if s == orig:
     raise SystemExit('v17 patch: PublicStateRelay unchanged')
 p.write_text(s)
 
-# --- MediaSessionMonitor: do not select terminal/stopped sessions as the current song,
-# rescan on playback-state changes, and explicitly clear the remote page when no player
-# is active. Paused sessions remain valid so lyrics stay visible while paused. ---
+# --- MediaSessionMonitor: re-evaluate every active MediaSession on each tick. The old
+# implementation kept publishing one previously-selected session forever, so starting
+# playback in another already-existing player could leave the Tesla page on the old song. ---
 p = root / 'app/src/main/java/com/teslalyrics/app/MediaSessionMonitor.java'
 s = p.read_text()
 orig = s
 s = s.replace(
     '@Override public void onPlaybackStateChanged(PlaybackState s){publish();}',
     '@Override public void onPlaybackStateChanged(PlaybackState s){scan();}'
+)
+s = s.replace(
+    '            if(current==null)scan();else publish();',
+    '            scan();'
 )
 s = s.replace(
     '        state.setMediaConnected(false,"");\n    }\n\n    public void scan(){',
