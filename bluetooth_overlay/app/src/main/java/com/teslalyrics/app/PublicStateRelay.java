@@ -54,19 +54,12 @@ public final class PublicStateRelay {
             AppState.get().log.add("WSS track: "+title);
         }
 
-        // Do not make lyric lookup a one-shot operation. MediaSession metadata (especially
-        // NetEase's exact song id) can arrive after title/artist, and a provider can fail
-        // transiently. Both fetchers cache successful results, so retries do not create
-        // per-line network traffic.
+        // v19 test: original synced lyrics only. Translation/romaji fetching is intentionally
+        // disabled end-to-end so it cannot add network, parsing or rendering work.
         if(trackChanged||mediaIdArrived||retryDue){
             if(mediaIdArrived)lastMediaId=mediaId;
             lastLyricsEnsureAt=now;
             MultiLyricsFetcher.get().ensure(f);
-            JSONObject translationFrame=f;
-            if(!(source.contains("网易云")||source.toLowerCase(java.util.Locale.ROOT).contains("netease"))){
-                try{translationFrame=new JSONObject(f.toString());translationFrame.remove("MediaMediaId");}catch(Exception ignored){}
-            }
-            TranslationFetcher.get().ensure(translationFrame,lyricsTrackKey);
         }
 
         try{
